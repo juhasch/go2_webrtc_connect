@@ -24,7 +24,8 @@ keywords = [
     "lidar",
     "audio",
     "video",
-    "robotics"
+    "robotics",
+    "packaging"
 ]
 classifiers = [
     "Development Status :: 4 - Beta",

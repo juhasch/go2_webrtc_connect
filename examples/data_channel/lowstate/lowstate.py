@@ -1,7 +1,7 @@
 import asyncio
 import logging
 import sys
-from go2_webrtc_driver.webrtc_driver import Go2WebRTCConnection, WebRTCConnectionMethod
+from go2_webrtc_driver import Go2WebRTCConnection, WebRTCConnectionMethod
 from go2_webrtc_driver.constants import RTC_TOPIC
 
 # Enable logging for debugging
