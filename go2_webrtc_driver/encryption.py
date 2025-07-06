@@ -1,3 +1,27 @@
+"""
+Encryption and Decryption Utilities
+===================================
+
+This module provides cryptographic functions for secure communication with the Unitree Go2 robot.
+It implements both AES (Advanced Encryption Standard) and RSA (Rivest-Shamir-Adleman) encryption
+algorithms for different security requirements.
+
+AES Functions:
+- Symmetric encryption/decryption using ECB mode with PKCS5 padding
+- Key generation using UUID-based random strings
+- Used for encrypting large data payloads
+
+RSA Functions:
+- Asymmetric encryption using public keys
+- PKCS1 v1.5 padding scheme
+- Used for encrypting AES keys and small sensitive data
+
+Security Notes:
+- AES keys are 256-bit (32 bytes) for strong encryption
+- RSA encryption handles chunking for large data automatically
+- All encrypted data is Base64 encoded for safe transmission
+"""
+
 from Crypto.Cipher import AES
 from Crypto.PublicKey import RSA
 from Crypto.Cipher import PKCS1_v1_5
@@ -5,31 +29,110 @@ import base64
 import uuid
 import binascii
 
-###############
-### AES handling
-###############
 
-# Function to generate a UUID and return it as a 32-character hexadecimal string
+# AES Encryption Functions
+# ======================
+
 def _generate_uuid() -> str:
+    """
+    Generate a UUID and return it as a 32-character hexadecimal string.
+    
+    This function is used internally to create cryptographically secure random keys
+    for AES encryption. The UUID is converted to a hex string to ensure it's exactly
+    32 characters long (256 bits).
+    
+    Returns:
+        str: A 32-character hexadecimal string suitable for use as an AES-256 key
+        
+    Example:
+        >>> key = _generate_uuid()
+        >>> len(key)
+        32
+        >>> isinstance(key, str)
+        True
+    """
     uuid_32 = uuid.uuid4().bytes  
     uuid_32_hex_string = binascii.hexlify(uuid_32).decode('utf-8')
     return uuid_32_hex_string
 
+
 def pad(data: str) -> bytes:
-    """Pad data to be a multiple of 16 bytes (AES block size)."""
+    """
+    Pad data to be a multiple of 16 bytes (AES block size) using PKCS5 padding.
+    
+    PKCS5 padding adds bytes to the end of the data, where each added byte has a value
+    equal to the number of bytes added. This ensures the data length is a multiple
+    of the AES block size (16 bytes).
+    
+    Args:
+        data (str): The plaintext data to be padded
+        
+    Returns:
+        bytes: The padded data as bytes, ready for AES encryption
+        
+    Example:
+        >>> padded = pad("Hello World")
+        >>> len(padded) % 16
+        0
+    """
     block_size = AES.block_size
     padding = block_size - len(data) % block_size
     padded_data = data + chr(padding) * padding
     return padded_data.encode('utf-8')
 
+
 def unpad(data: bytes) -> str:
-    """Remove padding from data."""
+    """
+    Remove PKCS5 padding from decrypted data.
+    
+    This function removes the padding bytes added by the pad() function,
+    restoring the original plaintext data.
+    
+    Args:
+        data (bytes): The padded data bytes from AES decryption
+        
+    Returns:
+        str: The original unpadded plaintext data
+        
+    Example:
+        >>> original = "Hello World"
+        >>> padded = pad(original)
+        >>> unpadded = unpad(padded)
+        >>> unpadded == original
+        True
+    """
     padding = data[-1]
     return data[:-padding].decode('utf-8')
 
+
 def aes_encrypt(data: str, key: str) -> str:
-    """Encrypt the given data using AES (ECB mode with PKCS5 padding)."""
+    """
+    Encrypt data using AES-256 in ECB mode with PKCS5 padding.
+    
+    This function encrypts the given plaintext data using AES-256 encryption.
+    The encrypted data is Base64 encoded for safe transmission over text-based
+    protocols.
+    
+    Args:
+        data (str): The plaintext data to encrypt
+        key (str): The 32-character AES-256 key
+        
+    Returns:
+        str: Base64-encoded encrypted data
+        
+    Raises:
+        ValueError: If the key is not exactly 32 characters long
+        
+    Example:
+        >>> key = generate_aes_key()
+        >>> encrypted = aes_encrypt("Hello World", key)
+        >>> len(encrypted) > 0
+        True
+    """
     # Ensure key is 32 bytes for AES-256
+    if len(key) != 32:
+        raise ValueError("AES key must be exactly 32 characters long")
+    
     key_bytes = key.encode('utf-8')
 
     # Pad the data to ensure it is a multiple of block size
@@ -46,9 +149,37 @@ def aes_encrypt(data: str, key: str) -> str:
 
     return encoded_encrypted_data
 
+
 def aes_decrypt(encrypted_data: str, key: str) -> str:
-    """Decrypt the given data using AES (ECB mode with PKCS5 padding)."""
+    """
+    Decrypt data using AES-256 in ECB mode with PKCS5 padding.
+    
+    This function decrypts Base64-encoded encrypted data using the provided
+    AES-256 key, removing padding to restore the original plaintext.
+    
+    Args:
+        encrypted_data (str): Base64-encoded encrypted data
+        key (str): The 32-character AES-256 key used for encryption
+        
+    Returns:
+        str: The decrypted plaintext data
+        
+    Raises:
+        ValueError: If the key is not exactly 32 characters long
+        base64.binascii.Error: If the encrypted data is not valid Base64
+        
+    Example:
+        >>> key = generate_aes_key()
+        >>> original = "Hello World"
+        >>> encrypted = aes_encrypt(original, key)
+        >>> decrypted = aes_decrypt(encrypted, key)
+        >>> decrypted == original
+        True
+    """
     # Ensure key is 32 bytes for AES-256
+    if len(key) != 32:
+        raise ValueError("AES key must be exactly 32 characters long")
+    
     key_bytes = key.encode('utf-8')
 
     # Decode Base64 encrypted data
@@ -65,21 +196,86 @@ def aes_decrypt(encrypted_data: str, key: str) -> str:
 
     return decrypted_data
 
-# Function to generate an AES key
+
 def generate_aes_key() -> str:
+    """
+    Generate a cryptographically secure AES-256 key.
+    
+    This function creates a new random 32-character key suitable for AES-256
+    encryption. Each call returns a unique key.
+    
+    Returns:
+        str: A 32-character hexadecimal string for use as an AES-256 key
+        
+    Example:
+        >>> key1 = generate_aes_key()
+        >>> key2 = generate_aes_key()
+        >>> len(key1) == 32
+        True
+        >>> key1 != key2
+        True
+    """
     return _generate_uuid()
 
-###############
-### RSA handling
-###############
+
+# RSA Encryption Functions
+# =======================
 
 def rsa_load_public_key(pem_data: str) -> RSA.RsaKey:
-    """Load an RSA public key from a PEM-formatted string."""
+    """
+    Load an RSA public key from a Base64-encoded PEM string.
+    
+    This function decodes a Base64-encoded RSA public key and returns
+    an RSA key object that can be used for encryption operations.
+    
+    Args:
+        pem_data (str): Base64-encoded RSA public key data
+        
+    Returns:
+        RSA.RsaKey: An RSA key object for encryption operations
+        
+    Raises:
+        ValueError: If the PEM data is invalid or not a valid RSA key
+        base64.binascii.Error: If the PEM data is not valid Base64
+        
+    Example:
+        >>> # Assuming valid_pem_data is a Base64-encoded RSA public key
+        >>> public_key = rsa_load_public_key(valid_pem_data)
+        >>> isinstance(public_key, RSA.RsaKey)
+        True
+    """
     key_bytes = base64.b64decode(pem_data)
     return RSA.import_key(key_bytes)
 
+
 def rsa_encrypt(data: str, public_key: RSA.RsaKey) -> str:
-    """Encrypt data using RSA and a given public key."""
+    """
+    Encrypt data using RSA with PKCS1 v1.5 padding.
+    
+    This function encrypts data using RSA public key cryptography. It automatically
+    handles chunking for data larger than the key size allows. The encrypted data
+    is Base64 encoded for safe transmission.
+    
+    Args:
+        data (str): The plaintext data to encrypt
+        public_key (RSA.RsaKey): The RSA public key for encryption
+        
+    Returns:
+        str: Base64-encoded encrypted data
+        
+    Raises:
+        ValueError: If the public key is invalid or data cannot be encrypted
+        
+    Example:
+        >>> # Assuming valid_public_key is an RSA public key
+        >>> encrypted = rsa_encrypt("Hello World", valid_public_key)
+        >>> len(encrypted) > 0
+        True
+        
+    Note:
+        The maximum chunk size for RSA encryption is (key_size_in_bytes - 11)
+        due to PKCS1 v1.5 padding requirements.
+    """
     cipher = PKCS1_v1_5.new(public_key)
 
     # Maximum chunk size for encryption with RSA/ECB/PKCS1Padding is key size - 11 bytes
@@ -95,37 +291,3 @@ def rsa_encrypt(data: str, public_key: RSA.RsaKey) -> str:
     # Base64 encode the final encrypted data
     encoded_encrypted_data = base64.b64encode(encrypted_bytes).decode('utf-8')
     return encoded_encrypted_data
-
-# Example usage
-if __name__ == "__main__":
-    # Public key
-    public_key_pem = """
-    MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAnOc1sgpzL4GTVp9/oQ0H
-    D7eeAO2GJUABfjX3TitgXiXN1Ktn2WLsLrtAiIuj3OrrRogx8fCT16oxnXx/Xrap
-    BRHD/ufHZ08A2IRVw6U6vKDv8TpQH22sAEtUji4/P2AaZmeOxFsYW5FshQr37KBG
-    +cBb7rJWLWEJpIXmCpnt37GGCtsACqRegkl7qQ8Q0OiJmtrYLPi00xSstZb+Wv1v
-    8B0eTY3POAUXjgl357L5dc6vS99rYFkYeUCTWHaH4d51Z/KgCRYUadboDc2cgNg/
-    z2dbO9S3HADegbIsN3fTbjDCruKfvc5ejxlFZ0Xbu6SScQbmkP8t3TPvy/DXGJAh
-    NwIDAQAB
-    """
-
-    # Example value of UUID or data you wish to encrypt
-    value_of = "26a663562a6f4dfbbbbf2b50c1a278cb"
-
-    # Load public key
-    public_key = rsa_load_public_key(public_key_pem)
-
-    # Encrypt the message
-    encrypted_value = rsa_encrypt(value_of, public_key)
-    print(f"Encrypted Value: {encrypted_value}")
-
-    # AES testing
-    aes_key = "26a663562a6f4dfbbbbf2b50c1a278cb"  # Example 32-character UUID
-
-    # Encrypt a message with AES
-    encrypted_message = aes_encrypt("Hello, world!", aes_key)
-    print(f"Encrypted AES Message: {encrypted_message}")
-
-    # Decrypt the AES message
-    decrypted_message = aes_decrypt(encrypted_message, aes_key)
-    print(f"Decrypted AES Message: {decrypted_message}")

@@ -1,0 +1,186 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "go2-webrtc-connect"
+version = "1.0.0"
+description = "Python WebRTC driver for Unitree Go2 Robot with audio/video streaming and LiDAR support"
+readme = "README.md"
+requires-python = ">=3.8"
+license = {text = "MIT"}
+authors = [
+    {name = "legion1581", email = "legion1581@gmail.com"}
+]
+maintainers = [
+    {name = "legion1581", email = "legion1581@gmail.com"}
+]
+keywords = [
+    "unitree",
+    "go2",
+    "robot",
+    "webrtc",
+    "streaming",
+    "lidar",
+    "audio",
+    "video",
+    "robotics"
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: System :: Hardware :: Hardware Drivers",
+    "Topic :: Multimedia :: Video :: Display",
+    "Topic :: Multimedia :: Sound/Audio :: Capture/Recording"
+]
+dependencies = [
+    "aiortc",
+    "aioice",
+    "pycryptodome",
+    "opencv-python",
+    "sounddevice",
+    "pyaudio",
+    "requests",
+    "wasmtime",
+    "flask-socketio",
+    "lz4",
+    "pydub"
+]
+
+[project.urls]
+Homepage = "https://github.com/legion1581/go2_webrtc_connect"
+Repository = "https://github.com/legion1581/go2_webrtc_connect"
+Issues = "https://github.com/legion1581/go2_webrtc_connect/issues"
+Documentation = "https://github.com/legion1581/go2_webrtc_connect/blob/main/README.md"
+Funding = "https://www.buymeacoffee.com/legion1581"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-asyncio>=0.21.0",
+    "black>=22.0",
+    "flake8>=4.0",
+    "mypy>=0.991",
+    "isort>=5.0",
+    "pre-commit>=2.20.0"
+]
+docs = [
+    "sphinx>=5.0",
+    "sphinx-rtd-theme>=1.0",
+    "myst-parser>=0.18.0"
+]
+examples = [
+    "matplotlib>=3.5.0",
+    "numpy>=1.21.0",
+    "scipy>=1.7.0"
+]
+
+[project.entry-points."console_scripts"]
+go2-scanner = "go2_webrtc_driver.multicast_scanner:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["go2_webrtc_driver*"]
+exclude = ["tests*", "docs*", "examples*"]
+
+[tool.setuptools.package-data]
+"go2_webrtc_driver.lidar" = ["*.wasm"]
+
+[tool.black]
+line-length = 100
+target-version = ['py38', 'py39', 'py310', 'py311']
+include = '\.pyi?$'
+extend-exclude = '''
+/(
+  # directories
+  \.eggs
+  | \.git
+  | \.hg
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | build
+  | dist
+  | __pycache__
+)/
+'''
+
+[tool.isort]
+profile = "black"
+multi_line_output = 3
+line_length = 100
+known_first_party = ["go2_webrtc_driver"]
+
+[tool.mypy]
+python_version = "3.8"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+disallow_untyped_decorators = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+warn_unreachable = true
+strict_equality = true
+
+[[tool.mypy.overrides]]
+module = [
+    "aiortc.*",
+    "aioice.*",
+    "sounddevice.*",
+    "pyaudio.*",
+    "wasmtime.*",
+    "flask_socketio.*",
+    "cv2.*"
+]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py", "*_test.py"]
+python_functions = ["test_*"]
+addopts = [
+    "-v",
+    "--tb=short",
+    "--strict-markers",
+    "--asyncio-mode=auto"
+]
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "integration: marks tests as integration tests",
+    "unit: marks tests as unit tests"
+]
+
+[tool.coverage.run]
+source = ["go2_webrtc_driver"]
+omit = [
+    "*/tests/*",
+    "*/examples/*",
+    "*/__pycache__/*"
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "if self.debug:",
+    "if settings.DEBUG",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if 0:",
+    "if __name__ == .__main__.:"
+] 
