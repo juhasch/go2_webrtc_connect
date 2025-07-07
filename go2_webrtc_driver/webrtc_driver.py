@@ -32,6 +32,22 @@ import json
 import sys
 import os
 from typing import Optional, Dict, Any
+import aioice
+
+# Patch aioice Connection class to use random username and password
+class Connection(aioice.Connection):
+    local_username = aioice.utils.random_string(4)
+    local_password = aioice.utils.random_string(22)
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.local_username = Connection.local_username
+        self.local_password = Connection.local_password
+
+aioice.Connection = Connection  # type: ignore
+
+import aiortc
+from packaging import version
 from aiortc import RTCPeerConnection, RTCSessionDescription, RTCIceServer, RTCConfiguration
 
 from .unitree_auth import send_sdp_to_local_peer, send_sdp_to_remote_peer
@@ -41,6 +57,24 @@ from .webrtc_video import WebRTCVideoChannel
 from .constants import WebRTCConnectionMethod
 from .util import fetch_public_key, fetch_token, fetch_turn_server_info, print_status
 from .multicast_scanner import discover_ip_sn
+
+
+ver = version.Version(aiortc.__version__)
+if ver == version.Version("1.10.0"):
+    X509_DIGEST_ALGORITHMS = {
+        "sha-256": "SHA256",
+    }
+    aiortc.rtcdtlstransport.X509_DIGEST_ALGORITHMS = X509_DIGEST_ALGORITHMS
+
+elif ver >= version.Version("1.11.0"):
+    # Syntax changed in aiortc 1.11.0, so we need to use the hashes module
+    from cryptography.hazmat.primitives import hashes
+
+    X509_DIGEST_ALGORITHMS = {
+        "sha-256": hashes.SHA256(),  # type: ignore
+    }
+    aiortc.rtcdtlstransport.X509_DIGEST_ALGORITHMS = X509_DIGEST_ALGORITHMS
+
 
 # Enable logging for debugging if needed
 # logging.basicConfig(level=logging.INFO)
@@ -112,6 +146,8 @@ class Go2WebRTCConnection:
         
         # Initialize authentication for remote connections
         self.token = fetch_token(username, password) if username and password else ""
+        #self.token="eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ1c2VyIiwidWlkIjozNTY4MSwiY3QiOjE3NDcyMjY1NTksImlzcyI6InVuaXRyZWVfcm9ib3QiLCJ0eXBlIjoiYWNjZXNzX3Rva2VuIiwiZXhwIjoxNzQ5ODE4NTU5fQ.hBDDeJMVtagmkGdpyeDfX7djPv0OdvqtGvDGbqLIk1I"
+        print(f"token: {self.token}")
         self.public_key = None
         
         # Initialize channel managers (will be set up during connection)
@@ -482,5 +518,3 @@ class Go2WebRTCConnection:
 
         logging.debug(f"Sending SDP offer to local peer at {ip}")
         return send_sdp_to_local_peer(ip, json.dumps(sdp_offer_json))
-
-

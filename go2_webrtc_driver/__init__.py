@@ -42,42 +42,6 @@ from .constants import WebRTCConnectionMethod, SPORT_CMD, RTC_TOPIC, VUI_COLOR
 from .webrtc_audiohub import WebRTCAudioHub
 from .multicast_scanner import discover_ip_sn
 
-import aioice
-import aiortc
-import logging
-from packaging import version
-
-class Connection(aioice.Connection):
-    local_username = aioice.utils.random_string(4)
-    local_password = aioice.utils.random_string(22)
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        logging.info(f"aioice version: {aioice.__version__}")
-        self.local_username = Connection.local_username
-        self.local_password = Connection.local_password
-
-aioice.Connection = Connection  # type: ignore
-
-ver = version.Version(aiortc.__version__)
-logging.info(f"aiortc version: {aiortc.__version__}")
-
-if ver == version.Version("1.10.0"):
-    X509_DIGEST_ALGORITHMS = {
-        "sha-256": "SHA256",
-    }
-    aiortc.rtcdtlstransport.X509_DIGEST_ALGORITHMS = X509_DIGEST_ALGORITHMS
-
-elif ver >= version.Version("1.11.0"):
-    # Syntax changed in aiortc 1.11.0, so we need to use the hashes module
-    from cryptography.hazmat.primitives import hashes
-
-    X509_DIGEST_ALGORITHMS = {
-        "sha-256": hashes.SHA256(),  # type: ignore
-    }
-    aiortc.rtcdtlstransport.X509_DIGEST_ALGORITHMS = X509_DIGEST_ALGORITHMS
-
-
 __all__ = [
     'Go2WebRTCConnection',
     'WebRTCConnectionMethod', 

@@ -5,7 +5,7 @@ from go2_webrtc_driver import Go2WebRTCConnection, WebRTCConnectionMethod
 from go2_webrtc_driver.constants import RTC_TOPIC
 
 # Enable logging for debugging
-logging.basicConfig(level=logging.FATAL)
+logging.basicConfig(level=logging.INFO)
 
 def display_data(message):
 
@@ -56,6 +56,7 @@ def display_data(message):
 
 
 async def main():
+    conn = None
     try:
         # Choose a connection method (uncomment the correct one)
         conn = Go2WebRTCConnection(WebRTCConnectionMethod.LocalSTA)
@@ -63,30 +64,36 @@ async def main():
         # Connect to the WebRTC service.
         await conn.connect()
 
-
         # Define a callback function to handle lowstate status when received.
         def lowstate_callback(message):
             current_message = message['data']
             
             display_data(current_message)
 
-
         # Subscribe to the sportmode status data and use the callback function to process incoming messages.
         conn.datachannel.pub_sub.subscribe(RTC_TOPIC['LOW_STATE'], lowstate_callback)
-
 
         # Keep the program running to allow event handling for 1 hour.
         await asyncio.sleep(3600)
 
+    except KeyboardInterrupt:
+        # Handle Ctrl+C to exit gracefully within the async context
+        print("\nProgram interrupted by user")
     except ValueError as e:
         # Log any value errors that occur during the process.
         logging.error(f"An error occurred: {e}")
+    finally:
+        # Ensure proper cleanup of the WebRTC connection
+        if conn:
+            try:
+                await conn.disconnect()
+                print("WebRTC connection closed successfully")
+            except Exception as e:
+                logging.error(f"Error closing WebRTC connection: {e}")
 
 
 if __name__ == "__main__":
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        # Handle Ctrl+C to exit gracefully.
-        print("\nProgram interrupted by user")
-        sys.exit(0)
+        pass
