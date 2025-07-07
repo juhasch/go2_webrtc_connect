@@ -5,10 +5,11 @@ from go2_webrtc_driver.webrtc_driver import Go2WebRTCConnection, WebRTCConnectio
 from go2_webrtc_driver.constants import RTC_TOPIC
 
 # Enable logging for debugging
-logging.basicConfig(level=logging.FATAL)
+logging.basicConfig(level=logging.INFO)
 
 def display_data(message):
 
+    timestamp = message['stamp']
     imu_state = message['imu_state']
     quaternion = imu_state['quaternion']
     gyroscope = imu_state['gyroscope']
@@ -35,6 +36,7 @@ def display_data(message):
     # Print each piece of data on a separate line
     print("Go2 Robot Status")
     print("===================")
+    print(f"Timestamp: {timestamp}")
     print(f"Mode: {mode}")
     print(f"Progress: {progress}")
     print(f"Gait Type: {gait_type}")
@@ -60,6 +62,7 @@ def display_data(message):
 
 
 async def main():
+    conn = None
     try:
         # Choose a connection method (uncomment the correct one)
         conn = Go2WebRTCConnection(WebRTCConnectionMethod.LocalSTA)
@@ -82,15 +85,24 @@ async def main():
         # Keep the program running to allow event handling for 1 hour.
         await asyncio.sleep(3600)
 
+    except KeyboardInterrupt:
+        # Handle Ctrl+C to exit gracefully within the async context
+        print("\nProgram interrupted by user")
     except ValueError as e:
         # Log any value errors that occur during the process.
         logging.error(f"An error occurred: {e}")
+    finally:
+        # Ensure proper cleanup of the WebRTC connection
+        if conn:
+            try:
+                await conn.disconnect()
+                print("WebRTC connection closed successfully")
+            except Exception as e:
+                logging.error(f"Error closing WebRTC connection: {e}")
 
 
 if __name__ == "__main__":
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        # Handle Ctrl+C to exit gracefully.
-        print("\nProgram interrupted by user")
-        sys.exit(0)
+        pass

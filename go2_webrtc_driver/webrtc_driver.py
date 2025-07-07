@@ -49,6 +49,7 @@ aioice.Connection = Connection  # type: ignore
 import aiortc
 from packaging import version
 from aiortc import RTCPeerConnection, RTCSessionDescription, RTCIceServer, RTCConfiguration
+from aiortc.mediastreams import MediaStreamError
 
 from .unitree_auth import send_sdp_to_local_peer, send_sdp_to_remote_peer
 from .webrtc_datachannel import WebRTCDataChannel
@@ -77,7 +78,7 @@ elif ver >= version.Version("1.11.0"):
 
 
 # Enable logging for debugging if needed
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.INFO)
 
 
 class Go2WebRTCConnection:
@@ -406,21 +407,31 @@ class Go2WebRTCConnection:
             """Handle incoming media tracks."""
             logging.debug(f"Track received: {track.kind}")
 
-            if track.kind == "video":
-                # Wait for first frame and start video processing
-                frame = await track.recv()
-                await self.video.track_handler(track)
-                
-            elif track.kind == "audio":
-                # Start audio processing loop
-                frame = await track.recv()
-                while True:
-                    try:
-                        frame = await track.recv()
-                        await self.audio.frame_handler(frame)
-                    except Exception as e:
-                        logging.error(f"Audio processing error: {e}")
-                        break
+            try:
+                if track.kind == "video":
+                    # Wait for first frame and start video processing
+                    frame = await track.recv()
+                    await self.video.track_handler(track)
+                    
+                elif track.kind == "audio":
+                    # Start audio processing loop
+                    frame = await track.recv()
+                    while True:
+                        try:
+                            frame = await track.recv()
+                            await self.audio.frame_handler(frame)
+                        except Exception as e:
+                            logging.debug(f"Audio processing stopped: {e}")
+                            break
+                            
+            except MediaStreamError:
+                # MediaStreamError is normal during connection cleanup
+                logging.debug(f"Track processing ended for {track.kind} (connection closing)")
+                return
+            except Exception as e:
+                # Handle other unexpected exceptions during track processing
+                logging.debug(f"Track processing ended for {track.kind}: {e}")
+                return
 
     async def _handle_sdp_exchange(
         self, 

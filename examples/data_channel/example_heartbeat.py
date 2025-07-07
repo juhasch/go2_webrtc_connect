@@ -1,9 +1,9 @@
 import asyncio
 import logging
 import sys
+import time
 
 from go2_webrtc_driver.webrtc_driver import Go2WebRTCConnection, WebRTCConnectionMethod
-from go2_webrtc_driver.msgs.heartbeat import WebRTCDataChannelHeartBeat
 
 # Enable logging for debugging
 logging.basicConfig(level=logging.INFO)
@@ -22,8 +22,9 @@ async def main():
         await conn.connect()
         print("Connected to WebRTC successfully!")
 
-        # Initialize heartbeat with channel and pub-sub
-        heartbeat = WebRTCDataChannelHeartBeat(conn.datachannel.channel, conn.datachannel.pub_sub)
+        # Use the existing heartbeat instance from the data channel
+        # (Don't create a new one - responses go to the original instance)
+        heartbeat = conn.datachannel.heartbeat
 
         # Start sending heartbeats
         print("Starting heartbeat transmission...")
@@ -31,15 +32,35 @@ async def main():
 
         # Run for 10 seconds to demonstrate heartbeat functionality
         print("Running heartbeat for 10 seconds...")
-        for i in range(10):
+        print("Monitoring heartbeat responses (checking every 2.5 seconds to align with heartbeat frequency)...")
+        
+        start_time = time.time()
+        
+        for i in range(10):  # 4 checks over ~10 seconds
             await asyncio.sleep(1)
-            if heartbeat.heartbeat_response:
-                print(f"Last heartbeat response: {heartbeat.heartbeat_response}")
-            else:
-                print("No heartbeat response received yet")
+            
+            # Check for new responses using the flag-based method
+            has_new_response = heartbeat.check_and_reset_new_response_flag()
+            response_info = heartbeat.get_response_info()
+            
+            current_time = time.time()
+            elapsed = current_time - start_time
+            
+            if has_new_response:
+                print(f"[{elapsed:.1f}s] ✓ NEW heartbeat response received! (Total: {response_info['total_responses']})")
+        
+        # Final summary
+        final_info = heartbeat.get_response_info()
+        total_time = time.time() - start_time
+        print(f"\n📈 Final Summary:")
+        print(f"   Total responses: {final_info['total_responses']}")
+        print(f"   Test duration: {total_time:.1f}s")
+        if final_info['total_responses'] > 0:
+            print(f"   Average response rate: {final_info['total_responses']/total_time:.2f} responses/sec")
+            print(f"   Last response: {final_info['response_age_seconds']:.1f}s ago")
 
         # Stop heartbeats when done
-        print("Stopping heartbeat transmission...")
+        print("\nStopping heartbeat transmission...")
         heartbeat.stop_heartbeat()
         print("Heartbeat stopped successfully!")
 

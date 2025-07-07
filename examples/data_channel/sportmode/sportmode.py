@@ -9,6 +9,7 @@ from go2_webrtc_driver.constants import RTC_TOPIC, SPORT_CMD
 logging.basicConfig(level=logging.FATAL)
     
 async def main():
+    conn = None
     try:
         # Choose a connection method (uncomment the correct one)
         conn = Go2WebRTCConnection(WebRTCConnectionMethod.LocalSTA)
@@ -124,14 +125,23 @@ async def main():
         # Keep the program running for a while
         await asyncio.sleep(3600)
     
+    except KeyboardInterrupt:
+        # Handle Ctrl+C to exit gracefully within the async context
+        print("\nProgram interrupted by user")
     except ValueError as e:
         # Log any value errors that occur during the process.
         logging.error(f"An error occurred: {e}")
+    finally:
+        # Ensure proper cleanup of the WebRTC connection
+        if conn:
+            try:
+                await conn.disconnect()
+                print("WebRTC connection closed successfully")
+            except Exception as e:
+                logging.error(f"Error closing WebRTC connection: {e}")
 
 if __name__ == "__main__":
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        # Handle Ctrl+C to exit gracefully.
-        print("\nProgram interrupted by user")
-        sys.exit(0)
+        pass
