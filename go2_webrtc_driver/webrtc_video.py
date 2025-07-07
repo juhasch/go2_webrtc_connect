@@ -72,7 +72,7 @@ class WebRTCVideoChannel:
         # Initialize callback system for video track processing
         self.track_callbacks: List[Callable[[Any], Awaitable[None]]] = []
         
-        logging.info("WebRTC video channel initialized with recvonly direction")
+        logging.debug("WebRTC video channel initialized with recvonly direction")
     
     def switchVideoChannel(self, switch: bool) -> None:
         """
@@ -97,7 +97,7 @@ class WebRTCVideoChannel:
             will be sent when disabled.
         """
         self.datachannel.switchVideoChannel(switch)
-        logging.info(f"Video channel {'enabled' if switch else 'disabled'}")
+        logging.debug(f"Video channel {'enabled' if switch else 'disabled'}")
     
     def add_track_callback(self, callback: Callable[[Any], Awaitable[None]]) -> None:
         """
@@ -125,7 +125,7 @@ class WebRTCVideoChannel:
         """
         if callable(callback):
             self.track_callbacks.append(callback)
-            logging.info(f"Video callback registered: {callback.__name__}")
+            logging.debug(f"Video callback registered: {callback.__name__}")
         else:
             logging.warning(f"Cannot register non-callable object as callback: {callback}")
     
@@ -145,7 +145,7 @@ class WebRTCVideoChannel:
             track handler. Users should register callbacks instead of
             calling this method directly.
         """
-        logging.info("Receiving video track")
+        logging.debug("Receiving video track")
         
         # Process track through all registered callbacks
         for callback in self.track_callbacks:
@@ -180,7 +180,7 @@ class WebRTCVideoChannel:
         """
         callback_count = len(self.track_callbacks)
         self.track_callbacks.clear()
-        logging.info(f"Cleared {callback_count} video callbacks")
+        logging.debug(f"Cleared {callback_count} video callbacks")
     
     def is_enabled(self) -> bool:
         """

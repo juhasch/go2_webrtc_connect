@@ -113,7 +113,7 @@ class WebRTCDataChannel:
         # Set up data channel event handlers
         self._setup_event_handlers()
         
-        logging.info("WebRTC data channel initialized successfully")
+        logging.debug("WebRTC data channel initialized successfully")
 
     def _setup_event_handlers(self) -> None:
         """Configure event handlers for the data channel."""
@@ -121,12 +121,12 @@ class WebRTCDataChannel:
         @self.channel.on("open")
         def on_open() -> None:
             """Handle data channel opening."""
-            logging.info("Data channel opened")
+            logging.debug("Data channel opened")
 
         @self.channel.on("close")
         def on_close() -> None:
             """Handle data channel closing."""
-            logging.info("Data channel closed")
+            logging.debug("Data channel closed")
             self.data_channel_opened = False
             self.heartbeat.stop_heartbeat()
             self.rtc_inner_req.network_status.stop_network_status_fetch()
@@ -211,7 +211,7 @@ class WebRTCDataChannel:
         """
         try:
             await asyncio.wait_for(self._wait_for_open(), timeout)
-            logging.info("Data channel opened successfully")
+            logging.debug("Data channel opened successfully")
         except asyncio.TimeoutError:
             logging.error(f"Data channel did not open within {timeout} seconds")
             print("Data channel did not open in time")
@@ -407,7 +407,7 @@ class WebRTCDataChannel:
         # Create decoder instance
         self.decoder = UnifiedLidarDecoder(decoder_type=decoder_type)
         print(f"Decoder set to: {self.decoder.get_decoder_name()}")
-        logging.info(f"Data decoder changed to: {decoder_type}")
+        logging.debug(f"Data decoder changed to: {decoder_type}")
     
     def is_open(self) -> bool:
         """

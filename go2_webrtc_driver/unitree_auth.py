@@ -247,7 +247,7 @@ def send_sdp_to_remote_peer(
         >>> answer is not None
         True
     """
-    logging.info("Sending SDP to Go2 via remote servers...")
+    logging.debug("Sending SDP to Go2 via remote servers...")
     
     # Generate AES key for encryption
     aes_key = generate_aes_key()
@@ -266,7 +266,7 @@ def send_sdp_to_remote_peer(
     
     # Process response
     if response.get("code") == 100:
-        logging.info("Received SDP answer from Go2!")
+        logging.debug("Received SDP answer from Go2!")
         return aes_decrypt(response['data'], aes_key)
     elif response.get("code") == 1000:
         logging.error("Device not online")
@@ -299,22 +299,22 @@ def send_sdp_to_local_peer(ip: str, sdp: str) -> Optional[str]:
     """
     # Try the old method first (port 8081)
     try:
-        logging.info("Attempting SDP exchange using legacy method...")
+        logging.debug("Attempting SDP exchange using legacy method...")
         response = send_sdp_to_local_peer_old_method(ip, sdp)
         if response:
-            logging.info("SDP exchange successful using legacy method")
+            logging.debug("SDP exchange successful using legacy method")
             return response
         else:
             logging.warning("Legacy method failed, trying new method...")
     except Exception as e:
         logging.error(f"Legacy method error: {e}")
-        logging.info("Falling back to new method...")
+        logging.debug("Falling back to new method...")
 
     # Try the new method (port 9991)
     try:
         response = send_sdp_to_local_peer_new_method(ip, sdp)
         if response:
-            logging.info("SDP exchange successful using new method")
+            logging.debug("SDP exchange successful using new method")
             return response
         else:
             logging.error("New method also failed")

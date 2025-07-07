@@ -73,7 +73,7 @@ class WebRTCAudioChannel:
         # Initialize callback system for audio frame processing
         self.track_callbacks: List[Callable[[Any], Awaitable[None]]] = []
         
-        logging.info("WebRTC audio channel initialized with sendrecv direction")
+        logging.debug("WebRTC audio channel initialized with sendrecv direction")
         
     async def frame_handler(self, frame) -> None:
         """
@@ -126,7 +126,7 @@ class WebRTCAudioChannel:
         """
         if callable(callback):
             self.track_callbacks.append(callback)
-            logging.info(f"Audio callback registered: {callback.__name__}")
+            logging.debug(f"Audio callback registered: {callback.__name__}")
         else:
             logging.warning(f"Cannot register non-callable object as callback: {callback}")
 
@@ -153,7 +153,7 @@ class WebRTCAudioChannel:
             will be sent when disabled.
         """
         self.datachannel.switchAudioChannel(switch)
-        logging.info(f"Audio channel {'enabled' if switch else 'disabled'}")
+        logging.debug(f"Audio channel {'enabled' if switch else 'disabled'}")
     
     def get_callback_count(self) -> int:
         """
@@ -181,6 +181,6 @@ class WebRTCAudioChannel:
         """
         callback_count = len(self.track_callbacks)
         self.track_callbacks.clear()
-        logging.info(f"Cleared {callback_count} audio callbacks")
+        logging.debug(f"Cleared {callback_count} audio callbacks")
     
         

@@ -304,5 +304,5 @@ class WebRTCDataChannelHeartBeat:
             - Response timing helps assess connection quality
         """
         self.heartbeat_response = time.time()
-        logging.info("Heartbeat response received.")
+        logging.debug("Heartbeat response received.")
     

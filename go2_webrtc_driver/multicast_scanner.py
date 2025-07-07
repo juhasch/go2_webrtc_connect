@@ -103,7 +103,7 @@ def discover_ip_sn(timeout: int = 2) -> dict:
         
         try:
             sock.sendto(query_message.encode('utf-8'), (MULTICAST_GROUP, MULTICAST_PORT))
-            logging.info(f"Multicast discovery query sent to {MULTICAST_GROUP}:{MULTICAST_PORT}")
+            logging.debug(f"Multicast discovery query sent to {MULTICAST_GROUP}:{MULTICAST_PORT}")
         except Exception as e:
             logging.error(f"Error sending multicast query: {e}")
             return serial_to_ip
@@ -132,7 +132,7 @@ def discover_ip_sn(timeout: int = 2) -> dict:
                         serial_to_ip[serial_number] = ip_address
                         
                         print(f"Discovered device: {serial_number} at {ip_address}")
-                        logging.info(f"Discovered device: {serial_number} at {ip_address}")
+                        logging.debug(f"Discovered device: {serial_number} at {ip_address}")
                     else:
                         logging.warning(f"Received message without 'sn' field from {addr[0]}")
                         
@@ -144,7 +144,7 @@ def discover_ip_sn(timeout: int = 2) -> dict:
                     continue
                     
         except socket.timeout:
-            logging.info(f"Discovery timeout reached after {timeout} seconds")
+            logging.debug(f"Discovery timeout reached after {timeout} seconds")
             
         except Exception as e:
             logging.error(f"Unexpected error during discovery: {e}")
@@ -158,7 +158,7 @@ def discover_ip_sn(timeout: int = 2) -> dict:
     
     # Log discovery results
     if serial_to_ip:
-        logging.info(f"Discovery completed. Found {len(serial_to_ip)} device(s)")
+        logging.debug(f"Discovery completed. Found {len(serial_to_ip)} device(s)")
     else:
         logging.warning("No devices discovered")
     
@@ -174,7 +174,7 @@ def main():
     """
     # Configure logging for standalone execution
     logging.basicConfig(
-        level=logging.INFO,
+        level=logging.debug,
         format='%(asctime)s - %(levelname)s - %(message)s'
     )
     

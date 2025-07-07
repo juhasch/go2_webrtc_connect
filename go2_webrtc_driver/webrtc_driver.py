@@ -77,7 +77,7 @@ elif ver >= version.Version("1.11.0"):
 
 
 # Enable logging for debugging if needed
-# logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.DEBUG)
 
 
 class Go2WebRTCConnection:
@@ -205,7 +205,7 @@ class Go2WebRTCConnection:
             if discovered_ip_sn_addresses:
                 if self.sn in discovered_ip_sn_addresses:
                     self.ip = discovered_ip_sn_addresses[self.sn]
-                    logging.info(f"Discovered robot at IP: {self.ip}")
+                    logging.debug(f"Discovered robot at IP: {self.ip}")
                 else:
                     raise ValueError(
                         f"Serial number {self.sn} not found on network. "
@@ -404,7 +404,7 @@ class Go2WebRTCConnection:
         @self.pc.on("track")
         async def on_track(track) -> None:
             """Handle incoming media tracks."""
-            logging.info(f"Track received: {track.kind}")
+            logging.debug(f"Track received: {track.kind}")
 
             if track.kind == "video":
                 # Wait for first frame and start video processing
@@ -428,7 +428,7 @@ class Go2WebRTCConnection:
         ip: Optional[str]
     ) -> None:
         """Handle SDP offer/answer exchange."""
-        logging.info("Creating SDP offer...")
+        logging.debug("Creating SDP offer...")
         offer = await self.pc.createOffer()
         await self.pc.setLocalDescription(offer)
 
