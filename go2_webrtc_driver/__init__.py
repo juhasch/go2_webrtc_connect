@@ -41,6 +41,7 @@ from .webrtc_driver import Go2WebRTCConnection
 from .constants import WebRTCConnectionMethod, SPORT_CMD, RTC_TOPIC, VUI_COLOR
 from .webrtc_audiohub import WebRTCAudioHub
 from .multicast_scanner import discover_ip_sn
+from .robot_helper import Go2RobotHelper, StateMonitor, RobotMode, create_example_main, simple_robot_connection
 
 __all__ = [
     'Go2WebRTCConnection',
@@ -50,4 +51,9 @@ __all__ = [
     'VUI_COLOR',
     'WebRTCAudioHub',
     'discover_ip_sn',
+    'Go2RobotHelper',
+    'StateMonitor',
+    'RobotMode',
+    'create_example_main',
+    'simple_robot_connection',
 ]
