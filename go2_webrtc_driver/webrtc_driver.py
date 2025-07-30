@@ -326,6 +326,14 @@ class Go2WebRTCConnection:
             turn_server_info: TURN server configuration for remote connections
             ip: Robot IP address for local connections
         """
+        # Check if aioice returns the same credentials for each instantiation
+        # (workaround for a bug in aioice is active)
+        from aioice import Connection
+        a = Connection(ice_controlling=False)
+        b = Connection(ice_controlling=False)
+        if a.local_username != b.local_username:
+            print("aoice installation/instantiation error. This is not allowed.")
+            sys.exit(1)
         # Create WebRTC configuration and peer connection
         configuration = self.create_webrtc_configuration(turn_server_info)
         self.pc = RTCPeerConnection(configuration)
