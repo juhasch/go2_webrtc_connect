@@ -1,18 +1,30 @@
 """
-Simple Heart Gesture Example using Go2RobotHelper
-================================================
+Go2 Robot Gesture Demonstration Example
+=======================================
 
-This example demonstrates heart gesture commands using the Go2RobotHelper class.
+This example demonstrates various gesture commands for the Go2 robot using the Go2RobotHelper class.
+It showcases how to execute different robot gestures including Hello, FingerHeart (heart gesture), 
+and Stretch commands with proper timing and state management.
 
-The helper automatically handles:
-- Connection management and cleanup
-- Mode switching with firmware 1.1.7 compatibility  
-- State monitoring and display
-- Exception handling and emergency cleanup
-- Proper resource management
+The Go2RobotHelper automatically handles:
+- WebRTC connection establishment and cleanup
+- Robot mode switching with firmware compatibility
+- Real-time state monitoring and status display
+- Exception handling and emergency shutdown procedures
+- Proper resource management and cleanup
+
+Features demonstrated:
+- Hello gesture: Basic robot greeting
+- FingerHeart gesture: Heart sign with 5-second duration
+- Stretch gesture: Robot stretching motion with 4-second duration
 
 Usage:
-    python simple_heart_gesture_example.py
+    python show_gestures.py
+
+Requirements:
+- Go2 robot with WebRTC connectivity
+- Compatible firmware version
+- Network connection to robot
 """
 
 import asyncio

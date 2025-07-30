@@ -5,14 +5,11 @@ This directory contains essential examples for using the Go2 WebRTC driver.
 ## Data Channel Examples
 
 ### Basic Examples
-- **`simple_handstand_example.py`** - Simple handstand demonstration using Go2RobotHelper
-- **`simple_heart_gesture_example.py`** - Heart gesture demonstration using Go2RobotHelper
-- **`simple_stand_example.py`** - Basic stand command example
+- **`show_gestures.py`** - Show different gestures
 
 ### Advanced Examples
 - **`lowstate/lowstate.py`** - Comprehensive robot state monitoring
 - **`robot_odometry/robot_odometry.py`** - Robot position and orientation tracking
-- **`robot_odometry/simple_robot_odometry.py`** - Simple odometry data display
 - **`sportmode/sportmode.py`** - Sport mode commands and acrobatics
 - **`vui/vui.py`** - LED control and volume management
 - **`lidar/lidar_stream.py`** - Basic LiDAR data streaming
@@ -33,14 +30,9 @@ This directory contains essential examples for using the Go2 WebRTC driver.
 ## Usage
 
 Each example can be run directly:
+(be sure to set the ROBOT_IP environment variable first)
 
 ```bash
-# Basic handstand example
-python examples/data_channel/simple_handstand_example.py
-
-# Audio playback
-python examples/audio/mp3_player/webrtc_audio_player.py
-
 # Video streaming
 python examples/video/camera_stream/display_video_channel.py
 ```
