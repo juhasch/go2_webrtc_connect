@@ -25,7 +25,8 @@ keywords = [
     "audio",
     "video",
     "robotics",
-    "packaging"
+    "packaging",
+    "numba"
 ]
 classifiers = [
     "Development Status :: 4 - Beta",
