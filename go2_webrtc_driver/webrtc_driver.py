@@ -147,8 +147,6 @@ class Go2WebRTCConnection:
         
         # Initialize authentication for remote connections
         self.token = fetch_token(username, password) if username and password else ""
-        #self.token="eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ1c2VyIiwidWlkIjozNTY4MSwiY3QiOjE3NDcyMjY1NTksImlzcyI6InVuaXRyZWVfcm9ib3QiLCJ0eXBlIjoiYWNjZXNzX3Rva2VuIiwiZXhwIjoxNzQ5ODE4NTU5fQ.hBDDeJMVtagmkGdpyeDfX7djPv0OdvqtGvDGbqLIk1I"
-        print(f"token: {self.token}")
         self.public_key = None
         
         # Initialize channel managers (will be set up during connection)

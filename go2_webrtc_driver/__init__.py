@@ -34,7 +34,7 @@ Authors:
 """
 
 # Package version
-__version__ = "1.0.0a"
+__version__ = "1.0.0"
 
 # Export main classes and constants for easier importing
 from .webrtc_driver import Go2WebRTCConnection

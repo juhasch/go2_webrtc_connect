@@ -8,11 +8,11 @@ mode switching, state monitoring, and emergency cleanup.
 
 Key Features:
 - Automatic connection management with context manager support
-- Safe mode switching with firmware 1.1.7 compatibility
 - Built-in state monitoring and display
 - Emergency cleanup and safe robot positioning
 - Simplified command execution with error handling
 - Async context manager for proper resource cleanup
+- Obstacle detection control and status querying
 
 Example Usage:
     ```python
@@ -24,6 +24,11 @@ Example Usage:
             await robot.ensure_mode("ai")
             await robot.execute_command("Hello")
             await robot.handstand_sequence()
+            
+            # Control obstacle detection
+            status = await robot.obstacle_detection("status")  # Check current status
+            await robot.obstacle_detection("enable")          # Enable obstacle detection
+            await robot.obstacle_detection("disable")         # Disable obstacle detection
     ```
 
 Author: Go2 WebRTC Connect
@@ -58,6 +63,8 @@ class StateMonitor:
         self.monitoring_enabled = False
         self.detailed_mode = enable_detailed
         self._callbacks: List[Callable] = []
+        self._last_printed_rpy = None  # Store last printed RPY for noise reduction
+        self._rpy_threshold = 0.01     # Minimum change to trigger print
         
     def enable_monitoring(self) -> None:
         """Enable state monitoring output"""
@@ -72,10 +79,9 @@ class StateMonitor:
         self._callbacks.append(callback)
         
     def display_compact_state(self, message: Dict[str, Any]) -> None:
-        """Display compact state information"""
+        """Display compact state information (only on significant RPY change)"""
         if not self.monitoring_enabled:
             return
-            
         try:
             self.state_count += 1
             timestamp = message.get('stamp', 'N/A')
@@ -83,21 +89,25 @@ class StateMonitor:
             progress = message.get('progress', 'N/A')
             gait_type = message.get('gait_type', 'N/A')
             body_height = message.get('body_height', 'N/A')
-            
             imu_state = message.get('imu_state', {})
             rpy = imu_state.get('rpy', [0, 0, 0])
-            
-            print(f"\r🤖 State #{self.state_count}: Mode={mode}, Progress={progress}, "
-                  f"Gait={gait_type}, Height={body_height:.3f}m, "
-                  f"Roll={rpy[0]:.3f}, Pitch={rpy[1]:.3f}, Yaw={rpy[2]:.3f}", 
-                  end='', flush=True)
-            
+            # Only print if RPY changes significantly
+            should_print = False
+            if self._last_printed_rpy is None:
+                should_print = True
+            else:
+                diffs = [abs(rpy[i] - self._last_printed_rpy[i]) for i in range(3)]
+                if any(d > self._rpy_threshold for d in diffs):
+                    should_print = True
+            if should_print:
+                print(f"🤖 State #{self.state_count}: Mode={mode}, Progress={progress}, "
+                      f"Gait={gait_type}, Height={body_height:.3f}m, "
+                      f"Roll={rpy[0]:.3f}, Pitch={rpy[1]:.3f}, Yaw={rpy[2]:.3f}")
+                self._last_printed_rpy = list(rpy)
             self.latest_state = message
-            
             # Call custom callbacks
             for callback in self._callbacks:
                 callback(message)
-                
         except Exception as e:
             print(f"\nError displaying state: {e}")
     
@@ -216,11 +226,29 @@ class Go2RobotHelper:
         
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         """Async context manager exit with conditional emergency cleanup"""
-        # Only perform emergency cleanup for actual errors, not for graceful shutdowns
-        if exc_type is not None and not (exc_type is asyncio.CancelledError and self.is_graceful_shutdown):
-            # There was an actual error (not a graceful cancellation)
-            if exc_type is not KeyboardInterrupt and exc_type is not asyncio.CancelledError:
-                await self.emergency_cleanup()
+        # Only perform emergency cleanup for serious connection/communication errors
+        # Don't trigger emergency cleanup for simple command validation errors
+        should_emergency_cleanup = False
+        
+        if exc_type is not None:
+            # Skip cleanup for user interruptions and graceful cancellations
+            if exc_type in (KeyboardInterrupt, asyncio.CancelledError):
+                if exc_type is asyncio.CancelledError and self.is_graceful_shutdown:
+                    should_emergency_cleanup = False
+                else:
+                    should_emergency_cleanup = False  # Let user interruptions be graceful
+            # Skip cleanup for simple command validation errors
+            elif exc_type is ValueError and "Unknown command" in str(exc_val):
+                should_emergency_cleanup = False
+            # Only cleanup for serious connection/communication errors
+            else:
+                # Check if it's a serious error (connection issues, etc.)
+                error_str = str(exc_val).lower() if exc_val else ""
+                serious_errors = ["connection", "timeout", "webrtc", "network", "socket"]
+                should_emergency_cleanup = any(err in error_str for err in serious_errors)
+        
+        if should_emergency_cleanup:
+            await self.emergency_cleanup()
         
         # Always disconnect cleanly
         await self.disconnect()
@@ -323,13 +351,7 @@ class Go2RobotHelper:
             return True
             
         print(f"🔄 Switching from {current_mode} to {target_mode} mode...")
-        
-        # StandDown before mode switch (required for firmware 1.1.7)
-        if standdown_before_switch and current_mode != "normal":
-            print("🔽 Making robot stand down (required for firmware 1.1.7)...")
-            await self.execute_command("StandDown")
-            await asyncio.sleep(3)
-            
+                    
         # Switch mode
         try:
             await self.conn.datachannel.pub_sub.publish_request_new(
@@ -340,7 +362,7 @@ class Go2RobotHelper:
                 }
             )
             
-            print(f"⏳ Waiting for mode switch to complete...")
+            print("⏳ Waiting for mode switch to complete...")
             await asyncio.sleep(5)
             
             # Verify mode switch
@@ -438,6 +460,130 @@ class Go2RobotHelper:
         except Exception as e:
             self.logger.error(f"Error during handstand sequence: {e}")
             print("❌ Handstand sequence failed")
+            return False
+
+    async def obstacle_detection(self, action: str = "status") -> Union[bool, None]:
+        """
+        Control or query obstacle detection system
+        
+        Args:
+            action: Action to perform - "status", "enable", "disable", "on", "off", "query"
+                   - "status"/"query": Return current obstacle detection status
+                   - "enable"/"on": Enable obstacle detection  
+                   - "disable"/"off": Disable obstacle detection
+                   
+        Returns:
+            bool: For status queries, True if enabled, False if disabled
+                  For enable/disable commands, True if successful, False if failed
+            None: If status query fails or times out
+        """
+        action = action.lower().strip()
+        
+        # Normalize action names
+        if action in ["on", "enable"]:
+            action = "enable"
+        elif action in ["off", "disable"]:
+            action = "disable"
+        elif action in ["status", "query"]:
+            action = "status"
+        else:
+            raise ValueError(f"Invalid action: {action}. Use 'status', 'enable'/'on', or 'disable'/'off'")
+        
+        if action == "status":
+            return await self._get_obstacle_detection_status()
+        elif action == "enable":
+            return await self._set_obstacle_detection(True)
+        elif action == "disable":
+            return await self._set_obstacle_detection(False)
+            
+    async def _get_obstacle_detection_status(self) -> Union[bool, None]:
+        """
+        Query current obstacle detection status
+        
+        Returns:
+            bool: True if enabled, False if disabled, None if query failed
+        """
+        print("📡 Checking obstacle detection status...")
+        
+        try:
+            import json
+            status_received = False
+            current_status = None
+            
+            def multiplestate_callback(message):
+                nonlocal status_received, current_status
+                try:
+                    # Parse the message data
+                    data = json.loads(message['data']) if isinstance(message['data'], str) else message['data']
+                    current_status = data.get('obstaclesAvoidSwitch', False)
+                    status_received = True
+                except Exception as e:
+                    self.logger.error(f"Error parsing multiplestate data: {e}")
+            
+            # Subscribe to multiple state topic to get current status
+            self.conn.datachannel.pub_sub.subscribe(RTC_TOPIC['MULTIPLE_STATE'], multiplestate_callback)
+            
+            # Wait for status data (timeout after 5 seconds)
+            wait_time = 0
+            while not status_received and wait_time < 5.0:
+                await asyncio.sleep(0.1)
+                wait_time += 0.1
+                
+            if status_received:
+                status_text = "🟢 ENABLED" if current_status else "🔴 DISABLED"
+                print(f"📊 Obstacle detection status: {status_text}")
+                return current_status
+            else:
+                print("⏱️ Status query timeout - no multiplestate data received")
+                return None
+                
+        except Exception as e:
+            self.logger.error(f"Error getting obstacle detection status: {e}")
+            print(f"❌ Failed to query obstacle detection status: {e}")
+            return None
+            
+    async def _set_obstacle_detection(self, enable: bool) -> bool:
+        """
+        Enable or disable obstacle detection
+        
+        Args:
+            enable: True to enable, False to disable
+            
+        Returns:
+            bool: True if successful, False if failed
+        """
+        action_text = "Enabling" if enable else "Disabling"
+        emoji = "🟢" if enable else "🔴"
+        print(f"{emoji} {action_text} obstacle detection...")
+        
+        try:
+            # Send enable/disable command
+            api_id = 1001 if enable else 1002  # 1001 for enable, 1002 for disable
+            response = await self.conn.datachannel.pub_sub.publish_request_new(
+                RTC_TOPIC['OBSTACLES_AVOID'], 
+                {
+                    "api_id": api_id,
+                    "parameter": {"enable": enable}
+                }
+            )
+            
+            # Check response
+            if response and response.get('data', {}).get('header', {}).get('status', {}).get('code') == 0:
+                success_text = "enabled" if enable else "disabled"
+                print(f"✅ Obstacle detection {success_text} successfully")
+                
+                # Brief wait for the change to take effect
+                await asyncio.sleep(1)
+                return True
+            else:
+                failure_text = "enable" if enable else "disable"
+                print(f"❌ Failed to {failure_text} obstacle detection")
+                return False
+                
+        except Exception as e:
+            failure_text = "enabling" if enable else "disabling"
+            self.logger.error(f"Error {failure_text} obstacle detection: {e}")
+            print(f"❌ Error {failure_text} obstacle detection: {e}")
             return False
             
     async def emergency_cleanup(self) -> None:
@@ -549,6 +695,16 @@ if __name__ == "__main__":
         await robot.ensure_mode("ai")
         await robot.execute_command("Hello")
         await robot.handstand_sequence(5.0)
+        
+        # Demonstrate obstacle detection control
+        print("\n🛡️ Obstacle Detection Demo")
+        status = await robot.obstacle_detection("status")
+        print(f"Initial status: {'Enabled' if status else 'Disabled' if status is not None else 'Unknown'}")
+        
+        if status is not None:
+            # Toggle obstacle detection
+            await robot.obstacle_detection("disable")
+            await robot.obstacle_detection("enable") 
         
     # Create standardized main function
     main = create_example_main(example_operations)
