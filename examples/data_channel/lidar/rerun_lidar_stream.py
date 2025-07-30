@@ -34,7 +34,7 @@ ENABLE_POINT_CLOUD = True
 # Global variables
 minYValue = 0
 maxYValue = 100
-RADII_FUDGE_FACTOR = 10.0 # Adjust this factor to change point size in Rerun
+RADII_FUDGE_FACTOR = 0.5 # Adjust this factor to change point size in Rerun
 message_count = 0
 reconnect_interval = 5  # Time (seconds) before retrying connection
 
@@ -114,6 +114,9 @@ async def lidar_webrtc_connection():
             # Disable traffic saving mode
             await conn.datachannel.disableTrafficSaving(True)
 
+            # Set the decoder type to native
+            conn.datachannel.set_decoder(decoder_type='native')
+
             # Turn LIDAR sensor on
             conn.datachannel.pub_sub.publish_without_callback("rt/utlidar/switch", "on")
 
@@ -131,9 +134,22 @@ async def lidar_webrtc_connection():
                         message_count += 1
                         return
 
-                    positions = message["data"]["data"].get("positions", [])
+                    # Handle both libvoxel and native decoder formats
+                    data = message["data"]["data"]
                     origin = message["data"].get("origin", [])
-                    points = np.array([positions[i:i+3] for i in range(0, len(positions), 3)], dtype=np.float32)
+                    
+                    # Check if using native decoder (returns "points") or libvoxel decoder (returns "positions")
+                    if "points" in data:
+                        # Native decoder format
+                        points = data["points"]
+                        if callable(points):
+                            points = points()  # Call the function to get the actual points
+                        points = np.array(points, dtype=np.float32)
+                    else:
+                        # Libvoxel decoder format
+                        positions = data.get("positions", [])
+                        points = np.array([positions[i:i+3] for i in range(0, len(positions), 3)], dtype=np.float32)
+                    
                     total_points = len(points)
                     unique_points = np.unique(points, axis=0)
 
