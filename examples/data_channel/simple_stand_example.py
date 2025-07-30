@@ -17,7 +17,7 @@ async def main():
         logging_level=logging.ERROR
     ) as robot:
         print("🤖 Standing up...")
-        await robot.execute_command("StandUp")
+        await robot.execute_command("Handstand")
         print("✅ Done!")
 
 

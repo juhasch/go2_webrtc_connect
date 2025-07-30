@@ -5,29 +5,6 @@ Go2 Robot Comprehensive Low State Monitoring - Updated with Go2RobotHelper
 This example demonstrates comprehensive monitoring of the robot's low-level state data
 using the simplified Go2RobotHelper interface.
 
-RESTORED: Full comprehensive data display including all motors, sensors, and system state.
-Previously simplified version showed only basic IMU, battery, and 4 motors - now displays:
-
-✅ Complete IMU data (quaternion, RPY, gyroscope, accelerometer, temperature)
-✅ All 12 motor states with detailed information (position, velocity, torque, temperature, current, errors)  
-✅ Foot force sensors and contact detection
-✅ Comprehensive battery information (voltage, current, temperature, capacity, percentage, health)
-✅ Robot position, velocity, and motion data
-✅ System temperatures and error states
-✅ Robot mode, gait type, and body height information
-✅ Automatic detection and display of additional sensor data
-
-The helper automatically handles:
-- Connection management and cleanup
-- Exception handling and recovery  
-- Proper resource management
-
-This example demonstrates:
-- Subscribing to low-level state data
-- Real-time monitoring of ALL robot sensors and systems
-- Comprehensive data processing and display
-- Error detection and reporting
-
 Usage:
     python lowstate.py
 """

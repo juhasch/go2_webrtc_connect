@@ -2,12 +2,7 @@
 Simple Handstand Example using Go2RobotHelper
 =============================================
 
-This example demonstrates how the Go2RobotHelper class dramatically reduces
-boilerplate code compared to the original examples. Compare this to the 
-original handstand_example.py to see the difference!
-
-Original handstand_example.py: ~180 lines
-This example: ~25 lines
+This example demonstrates a simple handstand using the Go2RobotHelper class.
 
 The helper automatically handles:
 - Connection management

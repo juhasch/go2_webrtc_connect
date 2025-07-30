@@ -1,11 +1,8 @@
 """
-Simple Heart Gesture Example - Before/After Comparison
-=====================================================
+Simple Heart Gesture Example using Go2RobotHelper
+================================================
 
-This example demonstrates how the Go2RobotHelper dramatically reduces boilerplate code.
-
-BEFORE (original heart_gesture_test.py): ~100+ lines of boilerplate
-AFTER (this example): ~15 lines of core logic
+This example demonstrates heart gesture commands using the Go2RobotHelper class.
 
 The helper automatically handles:
 - Connection management and cleanup
@@ -25,9 +22,6 @@ from go2_webrtc_driver import Go2RobotHelper
 async def heart_gesture_demo(robot: Go2RobotHelper):
     """
     Simple heart gesture demonstration
-    
-    Compare this to the original heart_gesture_test.py - this contains
-    only the essential robot logic, everything else is handled automatically.
     """
     print("❤️  Starting heart gesture demonstration...")
     
@@ -60,34 +54,4 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"❌ Fatal error: {e}")
 
-# ============================================================================
-# COMPARISON: Original vs Helper-based approach
-# ============================================================================
-
-"""
-ORIGINAL APPROACH (heart_gesture_test.py):
-- 100+ lines of code
-- Manual connection management
-- Manual state monitoring setup  
-- Manual exception handling
-- Manual emergency cleanup
-- Manual resource management
-- Repetitive try/except/finally blocks
-
-HELPER-BASED APPROACH (this file):
-- ~15 lines of core logic
-- Automatic connection management
-- Automatic state monitoring
-- Automatic exception handling
-- Automatic emergency cleanup
-- Automatic resource management
-- Clean, focused code
-
-BENEFITS:
-✅ 85% reduction in boilerplate code
-✅ Consistent error handling across all examples
-✅ Firmware 1.1.7 compatibility built-in
-✅ Easier to maintain and debug
-✅ More readable and focused on robot logic
-✅ Less chance of errors in connection management
-""" 
+ 
