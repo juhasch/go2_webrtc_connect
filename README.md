@@ -7,7 +7,7 @@ This repository contains a Python implementation of the WebRTC driver to connect
 ## Supported Versions
 
 The currently supported firmware packages are:
-- 1.1.1 - 1.1.4 (latest available)
+- 1.1.1 - 1.1.7 (latest available)
 - 1.0.19 - 1.0.25
 
 ## Audio and Video Support
@@ -34,6 +34,11 @@ The driver supports three types of connection methods:
     Go2WebRTCConnection(WebRTCConnectionMethod.LocalSTA, ip="192.168.8.181")
     ```
 
+    You can also specify the IP as environment variable:
+
+    ```bash
+    export ROBOT_IP="192.168.8.181"
+    ```
 
     If the IP is unknown, you can specify only the serial number, and the driver will try to find the IP using the special Multicast discovery feature available on Go2:
 
@@ -50,17 +55,56 @@ The driver supports three types of connection methods:
 ## Multicast scanner
 The driver has a built-in Multicast scanner to find the Unitree Go2 on the local network and connect using only the serial number.
 
+You can use the scanner from the command line after installation:
+
+```sh
+go2-scanner
+```
+
+This will scan for available Go2 robots on your local network and display their IP addresses and serial numbers.
+
 
 ## Installation
 
+### From Source (Recommended)
+
 ```sh
-cd ~
+# Install system dependencies (Ubuntu/Debian)
 sudo apt update
-sudo apt install python3-pip
-sudo apt install portaudio19-dev
-git clone --recurse-submodules https://github.com/legion1581/go2_webrtc_connect.git
+sudo apt install python3-pip portaudio19-dev
+
+# Install from GitHub
+pip install git+https://github.com/legion1581/go2_webrtc_connect.git
+
+# Or clone and install locally
+git clone https://github.com/legion1581/go2_webrtc_connect.git
 cd go2_webrtc_connect
-pip install -e .
+pip install .
+```
+
+### Development Installation
+
+For development work, install in editable mode with development dependencies:
+
+```sh
+git clone https://github.com/legion1581/go2_webrtc_connect.git
+cd go2_webrtc_connect
+pip install -e ".[dev]"
+```
+
+### Optional Dependencies
+
+Install additional dependencies for specific use cases:
+
+```sh
+# For examples and visualization
+pip install ".[examples]"
+
+# For documentation generation
+pip install ".[docs]"
+
+# All optional dependencies
+pip install ".[dev,docs,examples]"
 ```
 
 ## Usage 

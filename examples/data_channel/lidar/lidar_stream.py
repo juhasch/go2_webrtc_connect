@@ -7,12 +7,10 @@ from go2_webrtc_driver.webrtc_driver import Go2WebRTCConnection, WebRTCConnectio
 logging.basicConfig(level=logging.FATAL)
     
 async def main():
+    conn = None
     try:
         # Choose a connection method (uncomment the correct one)
-        conn = Go2WebRTCConnection(WebRTCConnectionMethod.LocalSTA, ip="192.168.8.181")
-        # conn = Go2WebRTCConnection(WebRTCConnectionMethod.LocalSTA, serialNumber="B42D2000XXXXXXXX")
-        # conn = Go2WebRTCConnection(WebRTCConnectionMethod.Remote, serialNumber="B42D2000XXXXXXXX", username="email@gmail.com", password="pass")
-        # conn = Go2WebRTCConnection(WebRTCConnectionMethod.LocalAP)
+        conn = Go2WebRTCConnection(WebRTCConnectionMethod.LocalSTA)
 
         # Connect to the WebRTC service.
         await conn.connect()
@@ -38,14 +36,23 @@ async def main():
         # Keep the program running to allow event handling for 1 hour.
         await asyncio.sleep(3600)
     
+    except KeyboardInterrupt:
+        # Handle Ctrl+C to exit gracefully within the async context
+        print("\nProgram interrupted by user")
     except ValueError as e:
         # Log any value errors that occur during the process.
         logging.error(f"An error occurred: {e}")
+    finally:
+        # Ensure proper cleanup of the WebRTC connection
+        if conn:
+            try:
+                await conn.disconnect()
+                print("WebRTC connection closed successfully")
+            except Exception as e:
+                logging.error(f"Error closing WebRTC connection: {e}")
 
 if __name__ == "__main__":
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        # Handle Ctrl+C to exit gracefully.
-        print("\nProgram interrupted by user")
-        sys.exit(0)
+        pass

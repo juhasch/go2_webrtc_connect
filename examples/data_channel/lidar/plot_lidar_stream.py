@@ -125,15 +125,14 @@ async def lidar_webrtc_connection():
     """Connect to WebRTC and process LIDAR data."""
     global lidar_buffer, message_count
     retry_attempts = 0
+    conn = None
 
     # checkArgs()
 
     while retry_attempts < MAX_RETRY_ATTEMPTS:
         try:
-            conn = Go2WebRTCConnection(WebRTCConnectionMethod.LocalSTA, ip="192.168.8.181")  # WebRTC IP
-            # _webrtc_connection = Go2WebRTCConnection(WebRTCConnectionMethod.Remote, serialNumber="B42D2000XXXXXXXX", username="email@gmail.com", password="pass")
-            # _webrtc_connection = Go2WebRTCConnection(WebRTCConnectionMethod.LocalAP)
-
+            conn = Go2WebRTCConnection(WebRTCConnectionMethod.LocalSTA)  # WebRTC IP
+     
             # Connect to WebRTC
             logging.info("Connecting to WebRTC...")
             await conn.connect()
@@ -216,18 +215,32 @@ async def lidar_webrtc_connection():
             while True:
                 await asyncio.sleep(1)
 
+        except KeyboardInterrupt:
+            # Handle Ctrl+C to exit gracefully within the async context
+            print("\nProgram interrupted by user")
+            break
         except Exception as e:
             logging.error(f"An error occurred: {e}")
             logging.info(f"Reconnecting in {reconnect_interval} seconds... (Attempt {retry_attempts + 1}/{MAX_RETRY_ATTEMPTS})")
-            close_csv_output()
-            try:
-                await conn.disconnect()
-            except Exception as e:
-                logging.error(f"Error during disconnect: {e}")
-            await asyncio.sleep(reconnect_interval)
             retry_attempts += 1
+        finally:
+            # Ensure proper cleanup
+            close_csv_output()
+            if conn:
+                try:
+                    await conn.disconnect()
+                    print("WebRTC connection closed successfully")
+                except Exception as e:
+                    logging.error(f"Error during disconnect: {e}")
+            
+            if retry_attempts >= MAX_RETRY_ATTEMPTS:
+                break
+                
+            if retry_attempts > 0:
+                await asyncio.sleep(reconnect_interval)
 
-    logging.error("Max retry attempts reached. Exiting.")
+    if retry_attempts >= MAX_RETRY_ATTEMPTS:
+        logging.error("Max retry attempts reached. Exiting.")
 
 async def read_csv_and_emit(csv_file):
     """Continuously read CSV files and emit data without delay."""
@@ -569,11 +582,18 @@ def start_webrtc():
 
 if __name__ == "__main__":
     import threading
-    if args.csv_read:
-        csv_thread = threading.Thread(target=lambda: asyncio.run(read_csv_and_emit(args.csv_read)), daemon=True)
-        csv_thread.start()
-    else:
-        webrtc_thread = threading.Thread(target=start_webrtc, daemon=True)
-        webrtc_thread.start()
+    try:
+        if args.csv_read:
+            csv_thread = threading.Thread(target=lambda: asyncio.run(read_csv_and_emit(args.csv_read)), daemon=True)
+            csv_thread.start()
+        else:
+            webrtc_thread = threading.Thread(target=start_webrtc, daemon=True)
+            webrtc_thread.start()
 
-    socketio.run(app, host="127.0.0.1", port=8080, debug=False)
+        socketio.run(app, host="127.0.0.1", port=8080, debug=False)
+    except KeyboardInterrupt:
+        print("\nProgram interrupted by user")
+        close_csv_output()
+    finally:
+        # Cleanup CSV files if still open
+        close_csv_output()

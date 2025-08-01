@@ -18,26 +18,34 @@ from aiortc import MediaStreamTrack
 # Enable logging for debugging
 logging.basicConfig(level=logging.FATAL)
 
+# Suppress aiortc H264 decoder warnings
+logging.getLogger('aiortc.codecs.h264').setLevel(logging.ERROR)
+
 def main():
     frame_queue = Queue()
+    stop_flag = threading.Event()  # Flag to signal when to stop
 
     # Choose a connection method (uncomment the correct one)
-    conn = Go2WebRTCConnection(WebRTCConnectionMethod.LocalSTA, ip="192.168.8.181")
-    # conn = Go2WebRTCConnection(WebRTCConnectionMethod.LocalSTA, serialNumber="B42D2000XXXXXXXX")
-    # conn = Go2WebRTCConnection(WebRTCConnectionMethod.Remote, serialNumber="B42D2000XXXXXXXX", username="email@gmail.com", password="pass")
-    # conn = Go2WebRTCConnection(WebRTCConnectionMethod.LocalAP)
+    conn = Go2WebRTCConnection(WebRTCConnectionMethod.LocalSTA)
 
     # Async function to receive video frames and put them in the queue
     async def recv_camera_stream(track: MediaStreamTrack):
-        while True:
-            frame = await track.recv()
-            # Convert the frame to a NumPy array
-            img = frame.to_ndarray(format="bgr24")
-            frame_queue.put(img)
+        try:
+            while not stop_flag.is_set():
+                frame = await track.recv()
+                # Convert the frame to a NumPy array
+                img = frame.to_ndarray(format="bgr24")
+                frame_queue.put(img)
+        except asyncio.CancelledError:
+            print("Video stream cancelled")
+            return
+        except Exception as e:
+            logging.error(f"Error receiving video frame: {e}")
+            return
 
     def run_asyncio_loop(loop):
         asyncio.set_event_loop(loop)
-        async def setup():
+        async def setup_and_run():
             try:
                 # Connect to the device
                 await conn.connect()
@@ -47,12 +55,31 @@ def main():
 
                 # Add callback to handle received video frames
                 conn.video.add_track_callback(recv_camera_stream)
+                
+                # Keep the loop running until stop is requested
+                while not stop_flag.is_set():
+                    await asyncio.sleep(0.1)
+                
+                # Disconnect when stopping
+                print("Disconnecting WebRTC...")
+                await conn.disconnect()
+                print("WebRTC disconnected")
+                    
             except Exception as e:
                 logging.error(f"Error in WebRTC connection: {e}")
+                # Try to disconnect even if there was an error
+                try:
+                    await conn.disconnect()
+                except:
+                    pass
 
         # Run the setup coroutine and then start the event loop
-        loop.run_until_complete(setup())
-        loop.run_forever()
+        try:
+            loop.run_until_complete(setup_and_run())
+        except Exception as e:
+            logging.error(f"Event loop error: {e}")
+        finally:
+            loop.close()
 
     # Create a new event loop for the asyncio code
     loop = asyncio.new_event_loop()
@@ -68,16 +95,30 @@ def main():
                 print(f"Shape: {img.shape}, Dimensions: {img.ndim}, Type: {img.dtype}, Size: {img.size}")
                 # Display the frame
                 cv2.imshow('Video', img)
-                if cv2.waitKey(1) & 0xFF == ord('q'):
-                    break
-            else:
-                # Sleep briefly to prevent high CPU usage
+            
+            # Check for 'q' key press regardless of frame availability
+            if cv2.waitKey(1) & 0xFF == ord('q'):
+                print("Exiting...")
+                stop_flag.set()  # Signal async tasks to stop
+                break
+            
+            if frame_queue.empty():
+                # Sleep briefly to prevent high CPU usage when no frames
                 time.sleep(0.01)
     finally:
         cv2.destroyAllWindows()
-        # Stop the asyncio event loop
-        loop.call_soon_threadsafe(loop.stop)
-        asyncio_thread.join()
+        
+        # Signal stop and wait for asyncio thread to finish
+        print("Shutting down...")
+        stop_flag.set()
+        
+        # Wait for thread to finish gracefully
+        if asyncio_thread.is_alive():
+            asyncio_thread.join(timeout=3.0)
+            if asyncio_thread.is_alive():
+                print("Warning: AsyncIO thread did not stop cleanly")
+        
+        print("Cleanup complete")
 
 if __name__ == "__main__":
     main()

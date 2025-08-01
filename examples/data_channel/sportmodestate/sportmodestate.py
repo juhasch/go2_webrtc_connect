@@ -1,99 +1,160 @@
+"""
+Go2 Robot Sport Mode State Monitoring - Updated with Go2RobotHelper
+===================================================================
+
+This example demonstrates how to monitor the robot's sport mode state data
+using the simplified Go2RobotHelper interface.
+
+UPDATED: Converted to use Go2RobotHelper, reducing boilerplate code while
+maintaining all sport mode state monitoring functionality and adding better connection management.
+
+The helper automatically handles:
+- Connection management and cleanup
+- Exception handling and recovery
+- Proper resource management
+
+This example demonstrates:
+- Subscribing to sport mode state data
+- Real-time monitoring of robot movement state
+- Data processing and display
+
+Usage:
+    python sportmodestate.py
+"""
+
 import asyncio
-import logging
-import sys
-from go2_webrtc_driver.webrtc_driver import Go2WebRTCConnection, WebRTCConnectionMethod
+from go2_webrtc_driver import Go2RobotHelper
 from go2_webrtc_driver.constants import RTC_TOPIC
 
-# Enable logging for debugging
-logging.basicConfig(level=logging.FATAL)
 
-def display_data(message):
-
-    imu_state = message['imu_state']
-    quaternion = imu_state['quaternion']
-    gyroscope = imu_state['gyroscope']
-    accelerometer = imu_state['accelerometer']
-    rpy = imu_state['rpy']
-    temperature = imu_state['temperature']
-
-    mode = message['mode']
-    progress = message['progress']
-    gait_type = message['gait_type']
-    foot_raise_height = message['foot_raise_height']
-    position = message['position']
-    body_height = message['body_height']
-    velocity = message['velocity']
-    yaw_speed = message['yaw_speed']
-    range_obstacle = message['range_obstacle']
-    foot_force = message['foot_force']
-    foot_position_body = message['foot_position_body']
-    foot_speed_body = message['foot_speed_body']
-
-    # Clear the entire screen and reset cursor position to top
-    sys.stdout.write("\033[H\033[J")
-
-    # Print each piece of data on a separate line
-    print("Go2 Robot Status")
-    print("===================")
-    print(f"Mode: {mode}")
-    print(f"Progress: {progress}")
-    print(f"Gait Type: {gait_type}")
-    print(f"Foot Raise Height: {foot_raise_height} m")
-    print(f"Position: {position}")
-    print(f"Body Height: {body_height} m")
-    print(f"Velocity: {velocity}")
-    print(f"Yaw Speed: {yaw_speed}")
-    print(f"Range Obstacle: {range_obstacle}")
-    print(f"Foot Force: {foot_force}")
-    print(f"Foot Position (Body): {foot_position_body}")
-    print(f"Foot Speed (Body): {foot_speed_body}")
-    print("-------------------")
-    print(f"IMU - Quaternion: {quaternion}")
-    print(f"IMU - Gyroscope: {gyroscope}")
-    print(f"IMU - Accelerometer: {accelerometer}")
-    print(f"IMU - RPY: {rpy}")
-    print(f"IMU - Temperature: {temperature}°C")
+def display_data(data):
+    """
+    Process and display sport mode state data from the robot
     
-    # Optionally, flush to ensure immediate output
-    sys.stdout.flush()
-
-
-
-async def main():
+    This function handles the incoming sport mode state messages
+    and displays relevant information about the robot's movement state.
+    """
     try:
-        # Choose a connection method (uncomment the correct one)
-        conn = Go2WebRTCConnection(WebRTCConnectionMethod.LocalSTA, ip="192.168.8.181")
-        # conn = Go2WebRTCConnection(WebRTCConnectionMethod.LocalSTA, serialNumber="B42D2000XXXXXXXX")
-        # conn = Go2WebRTCConnection(WebRTCConnectionMethod.Remote, serialNumber="B42D2000XXXXXXXX", username="email@gmail.com", password="pass")
-        # conn = Go2WebRTCConnection(WebRTCConnectionMethod.LocalAP)
+        # Extract key information from sport mode state data
+        timestamp = data.get('stamp', 'N/A')
+        mode = data.get('mode', 'N/A')
+        progress = data.get('progress', 'N/A')
+        gait_type = data.get('gait_type', 'N/A')
+        body_height = data.get('body_height', 0)
+        position = data.get('position', [0, 0, 0])
+        velocity = data.get('velocity', [0, 0, 0])
+        
+        # IMU state
+        imu_state = data.get('imu_state', {})
+        rpy = imu_state.get('rpy', [0, 0, 0])
+        quaternion = imu_state.get('quaternion', [0, 0, 0, 1])
+        gyroscope = imu_state.get('gyroscope', [0, 0, 0])
+        accelerometer = imu_state.get('accelerometer', [0, 0, 0])
+        
+        # Foot contact information
+        foot_contact = data.get('foot_contact', [0, 0, 0, 0])
+        
+        # Display formatted data
+        print(f"\n🎯 Sport Mode State Data (Timestamp: {timestamp})")
+        print("-" * 60)
+        
+        # Basic State Information
+        print(f"🏃 Movement State:")
+        print(f"   Mode: {mode}")
+        print(f"   Progress: {progress}")
+        print(f"   Gait Type: {gait_type}")
+        print(f"   Body Height: {body_height:.3f}m")
+        
+        # Position and Velocity
+        print(f"📍 Position: [{position[0]:.3f}, {position[1]:.3f}, {position[2]:.3f}]")
+        print(f"🏃 Velocity: [{velocity[0]:.3f}, {velocity[1]:.3f}, {velocity[2]:.3f}]")
+        
+        # IMU Information
+        print(f"🧭 IMU Data:")
+        print(f"   RPY:        [{rpy[0]:.3f}, {rpy[1]:.3f}, {rpy[2]:.3f}]")
+        print(f"   Quaternion: [{quaternion[0]:.3f}, {quaternion[1]:.3f}, {quaternion[2]:.3f}, {quaternion[3]:.3f}]")
+        print(f"   Gyroscope:  [{gyroscope[0]:.3f}, {gyroscope[1]:.3f}, {gyroscope[2]:.3f}]")
+        print(f"   Accel:      [{accelerometer[0]:.3f}, {accelerometer[1]:.3f}, {accelerometer[2]:.3f}]")
+        
+        # Foot Contact
+        foot_names = ["FR", "FL", "RR", "RL"]  # Front Right, Front Left, Rear Right, Rear Left
+        foot_status = []
+        for i, contact in enumerate(foot_contact):
+            status = "��" if contact else "🔴"
+            foot_status.append(f"{foot_names[i]}:{status}")
+        
+        print(f"🦶 Foot Contact: {' '.join(foot_status)}")
+        
+        print("-" * 60)
+        
+    except Exception as e:
+        print(f"❌ Error processing sport mode state data: {e}")
 
-        # Connect to the WebRTC service.
-        await conn.connect()
 
-
-        # Define a callback function to handle sportmode status when received.
-        def sportmodestatus_callback(message):
-            current_message = message['data']
-            
-            display_data(current_message)
-
-
-        # Subscribe to the sportmode status data and use the callback function to process incoming messages.
-        conn.datachannel.pub_sub.subscribe(RTC_TOPIC['LF_SPORT_MOD_STATE'], sportmodestatus_callback)
-
-
-        # Keep the program running to allow event handling for 1 hour.
-        await asyncio.sleep(3600)
-
-    except ValueError as e:
-        # Log any value errors that occur during the process.
-        logging.error(f"An error occurred: {e}")
+async def sportmode_state_monitoring_demo(robot: Go2RobotHelper):
+    """
+    Demonstrate sport mode state monitoring using the robot helper
+    
+    This subscribes to the robot's sport mode state data and displays
+    real-time movement and sensor information.
+    """
+    print("=== Go2 Robot Sport Mode State Monitoring ===")
+    print("📡 Starting sport mode state data monitoring...")
+    print("This will display real-time movement state data from the robot")
+    print("Press Ctrl+C to stop")
+    
+    # Get access to the underlying connection for data subscription
+    conn = robot.conn
+    
+    print(f"\n📊 Setting up sport mode state data subscription...")
+    
+    # Define callback function to handle sportmode state data when received
+    def sportmodestatus_callback(message):
+        current_message = message['data']
+        display_data(current_message)
+    
+    # Subscribe to the sport mode state data
+    conn.datachannel.pub_sub.subscribe(RTC_TOPIC['LF_SPORT_MOD_STATE'], sportmodestatus_callback)
+    print("✅ Subscribed to sport mode state data stream")
+    
+    print(f"\n🔄 Monitoring sport mode state data...")
+    print("Data will appear below as it's received from the robot:")
+    
+    try:
+        # Keep the program running to allow event handling
+        # The helper will handle connection management
+        await asyncio.sleep(3600)  # Monitor for up to 1 hour
+        
+    except asyncio.CancelledError:
+        print(f"\n🛑 Monitoring cancelled")
+        raise
+    except Exception as e:
+        print(f"\n❌ Error during monitoring: {e}")
+        raise
+    
+    print(f"\n📊 Sport mode state monitoring completed")
 
 
 if __name__ == "__main__":
+    """
+    Main entry point with automatic error handling
+    """
+    print("Starting Go2 Robot Sport Mode State Monitoring...")
+    print("This will display real-time sport mode state data from the robot")
+    print("Press Ctrl+C to stop the program at any time")
+    print("=" * 60)
+    
+    async def main():
+        # Context manager handles all connection setup and cleanup
+        # Disable built-in state monitoring since we're doing our own
+        async with Go2RobotHelper(enable_state_monitoring=False) as robot:
+            await sportmode_state_monitoring_demo(robot)
+    
+    # Run with automatic error handling
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        # Handle Ctrl+C to exit gracefully.
-        print("\nProgram interrupted by user")
-        sys.exit(0)
+        print("\n⚠️  Program interrupted by user")
+        print("Sport mode state monitoring stopped")
+    except Exception as e:
+        print(f"❌ Fatal error: {e}")
