@@ -57,7 +57,10 @@ dependencies = [
     "wasmtime",
     "flask-socketio",
     "lz4",
-    "pydub"
+    "pydub",
+    "netifaces>=0.11.0",
+    "pydantic>=2.5,<3",
+    "pyyaml>=6.0",
 ]
 
 [project.urls]
@@ -85,7 +88,8 @@ docs = [
 examples = [
     "matplotlib>=3.5.0",
     "numpy>=1.21.0",
-    "scipy>=1.7.0"
+    "scipy>=1.7.0",
+    "mediapipe>=0.10.0"
 ]
 
 [project.entry-points."console_scripts"]
@@ -147,7 +151,8 @@ module = [
     "pyaudio.*",
     "wasmtime.*",
     "flask_socketio.*",
-    "cv2.*"
+    "cv2.*",
+    "mediapipe.*"
 ]
 ignore_missing_imports = true
 

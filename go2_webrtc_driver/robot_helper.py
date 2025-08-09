@@ -40,7 +40,7 @@ import logging
 import json
 import sys
 from typing import Optional, Dict, Any, Callable, Union, List
-from contextlib import asynccontextmanager
+# from contextlib import asynccontextmanager
 from enum import Enum
 
 from .webrtc_driver import Go2WebRTCConnection, WebRTCConnectionMethod
@@ -84,7 +84,7 @@ class StateMonitor:
             return
         try:
             self.state_count += 1
-            timestamp = message.get('stamp', 'N/A')
+            # timestamp is available in message but not used for compact display
             mode = message.get('mode', 'N/A')
             progress = message.get('progress', 'N/A')
             gait_type = message.get('gait_type', 'N/A')
@@ -214,6 +214,7 @@ class Go2RobotHelper:
         self.current_mode: Optional[str] = None
         self.is_connected = False
         self.is_graceful_shutdown = False  # Flag to track graceful vs emergency shutdown
+        self._movement_prepared: bool = False  # Prepare joystick/speed once before first Move
         
         # Set up logging
         logging.basicConfig(level=logging_level)
@@ -401,6 +402,8 @@ class Go2RobotHelper:
             request_data = {"api_id": SPORT_CMD[command]}
             if parameter:
                 request_data["parameter"] = parameter
+
+            # Debug output specifically for movement optimization
                 
             response = await self.conn.datachannel.pub_sub.publish_request_new(
                 RTC_TOPIC["SPORT_MOD"], 
@@ -410,6 +413,17 @@ class Go2RobotHelper:
             if wait_time > 0:
                 await asyncio.sleep(wait_time)
                 
+            # For Move, surface concise response information to aid debugging
+            if command == "Move":
+                try:
+                    status = response.get("data", {}).get("header", {}).get("status", {})
+                    code = status.get("code")
+                    msg = status.get("msg") or status.get("message")
+                    if code not in (0, None):
+                        print(f"⚠️ Move response code={code}, msg={msg}")
+                except Exception:
+                    pass
+
             print(f"✅ Command {command} executed successfully")
             return response
             

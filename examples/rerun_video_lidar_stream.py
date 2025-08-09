@@ -16,6 +16,12 @@ import threading
 import time
 from queue import Queue
 from go2_webrtc_driver.webrtc_driver import Go2WebRTCConnection, WebRTCConnectionMethod
+from go2_webrtc_driver.lidar.point_cloud_accumulator import (
+    PointCloudAccumulator, 
+    create_accumulator_from_args, 
+    add_accumulation_args,
+    process_points_with_accumulation
+)
 from aiortc import MediaStreamTrack
 from datetime import datetime
 import cv2
@@ -30,7 +36,7 @@ csv.field_size_limit(sys.maxsize)
 # Initialize Rerun
 rr.init("go2_video_lidar_realtime", spawn=True)
 
-VERSION = "1.0.0"
+VERSION = "1.0.2"
 
 # LIDAR Constants
 ROTATE_X_ANGLE = 0.0  # No rotation around X
@@ -41,8 +47,8 @@ ENABLE_VIDEO = True
 RADII_FUDGE_FACTOR = 10.0  # Adjust this factor to change point size in Rerun
 
 # Global variables
-minYValue = 0
-maxYValue = 100
+minYValue = -1000  # Much wider default range
+maxYValue = 1000
 lidar_message_count = 0
 video_frame_count = 0
 reconnect_interval = 5  # Time (seconds) before retrying connection
@@ -66,16 +72,24 @@ lidar_csv_writer = None
 frame_queue = Queue()
 stop_flag = threading.Event()
 
+# Global accumulator
+accumulator = None
+
 # Parse command-line arguments
 parser = argparse.ArgumentParser(description=f"Combined Video+LIDAR Viz v{VERSION}")
 parser.add_argument("--version", action="version", version=f"Combined Video+LIDAR Viz v{VERSION}")
 parser.add_argument("--csv-read", type=str, help="Read from CSV files instead of WebRTC")
 parser.add_argument("--csv-write", action="store_true", help="Write CSV data file when using WebRTC")
 parser.add_argument("--skip-mod", type=int, default=1, help="Skip LIDAR messages using modulus (default: 1, no skipping)")
-parser.add_argument('--minYValue', type=int, default=0, help='Minimum Y value for LIDAR filtering')
-parser.add_argument('--maxYValue', type=int, default=100, help='Maximum Y value for LIDAR filtering')
+parser.add_argument('--minYValue', type=int, default=-1000, help='Minimum Y value for LIDAR filtering (default: -1000)')
+parser.add_argument('--maxYValue', type=int, default=1000, help='Maximum Y value for LIDAR filtering (default: 1000)')
 parser.add_argument('--disable-video', action="store_true", help='Disable video stream')
 parser.add_argument('--disable-lidar', action="store_true", help='Disable LIDAR stream')
+parser.add_argument('--no-y-filter', action="store_true", help='Disable Y-value filtering to see full field of view')
+
+# Add accumulation arguments
+add_accumulation_args(parser)
+
 args = parser.parse_args()
 
 minYValue = args.minYValue
@@ -121,6 +135,96 @@ def rotate_points(points, x_angle, z_angle):
     points = points @ rotation_matrix_x.T
     points = points @ rotation_matrix_z.T
     return points
+
+def process_single_frame(points: np.ndarray, message_data: dict, csv_writer=None, csv_file=None) -> None:
+    """Process a single frame without accumulation (original behavior)."""
+    global lidar_message_count
+    
+    total_points = len(points)
+    unique_points = np.unique(points, axis=0)
+
+    # Save to CSV if requested
+    if csv_writer:
+        csv_writer.writerow([
+            message_data.get("stamp", ""),
+            message_data.get("frame_id", ""),
+            message_data.get("resolution", ""),
+            message_data.get("src_size", ""),
+            message_data.get("origin", ""),
+            message_data.get("width", ""),
+            len(unique_points),
+            unique_points.tolist()
+        ])
+        if csv_file:
+            csv_file.flush()
+
+    if unique_points.size > 0:
+        points = rotate_points(unique_points, ROTATE_X_ANGLE, ROTATE_Z_ANGLE)
+        
+        # Apply Y-value filtering only if not disabled
+        if not args.no_y_filter:
+            points = points[(points[:, 1] >= minYValue) & (points[:, 1] <= maxYValue)]
+            unique_points = np.unique(points, axis=0)
+        
+        if unique_points.size > 0:
+            center_x = float(np.mean(unique_points[:, 0]))
+            center_y = float(np.mean(unique_points[:, 1]))
+            center_z = float(np.mean(unique_points[:, 2]))
+            offset_points = unique_points - np.array([center_x, center_y, center_z])
+        else:
+            offset_points = np.empty((0, 3), dtype=np.float32)
+    else:
+        unique_points = np.empty((0, 3), dtype=np.float32)
+        offset_points = unique_points
+
+    # Color by height (z) and log to Rerun
+    if offset_points.shape[0] > 0:
+        z = offset_points[:, 2]
+        z_min, z_max = z.min(), z.max()
+        norm_z = (z - z_min) / (z_max - z_min + 1e-6)
+        colors = np.stack([
+            (norm_z * 255).astype(np.uint8),
+            np.full_like(norm_z, 128, dtype=np.uint8),
+            (255 - norm_z * 255).astype(np.uint8)
+        ], axis=1)
+        radii = np.full(offset_points.shape[0], 0.05, dtype=np.float32) * RADII_FUDGE_FACTOR
+        rr.log("lidar/points", rr.Points3D(offset_points, colors=colors, radii=radii))
+
+    lidar_message_count += 1
+    print(f"LIDAR Message {lidar_message_count}: Total points={total_points}, Unique points={len(unique_points)}")
+
+def process_accumulated_cloud(accumulated_points: np.ndarray) -> None:
+    """Process accumulated point cloud."""
+    # Apply Y-value filtering only if not disabled
+    if not args.no_y_filter:
+        filtered_points = accumulated_points[(accumulated_points[:, 1] >= minYValue) & 
+                                           (accumulated_points[:, 1] <= maxYValue)]
+    else:
+        filtered_points = accumulated_points
+    
+    if filtered_points.size == 0:
+        return
+    
+    # Center the points
+    center_x = float(np.mean(filtered_points[:, 0]))
+    center_y = float(np.mean(filtered_points[:, 1]))
+    center_z = float(np.mean(filtered_points[:, 2]))
+    offset_points = filtered_points - np.array([center_x, center_y, center_z])
+    
+    # Color by height (z) and log to Rerun
+    z = offset_points[:, 2]
+    z_min, z_max = z.min(), z.max()
+    norm_z = (z - z_min) / (z_max - z_min + 1e-6)
+    colors = np.stack([
+        (norm_z * 255).astype(np.uint8),
+        np.full_like(norm_z, 128, dtype=np.uint8),
+        (255 - norm_z * 255).astype(np.uint8)
+    ], axis=1)
+    radii = np.full(offset_points.shape[0], 0.05, dtype=np.float32) * RADII_FUDGE_FACTOR
+    
+    rr.log("lidar/accumulated_points", rr.Points3D(offset_points, colors=colors, radii=radii))
+    
+    print(f"Published accumulated cloud: {len(filtered_points)} points")
 
 async def recv_camera_stream(track: MediaStreamTrack):
     """Receive video frames and log them to Rerun."""
@@ -193,70 +297,34 @@ async def lidar_callback_task(message):
                 print(f"[DEBUG] LIDAR rate: {lidar_rate:.2f} processed/s, {total_rate:.2f} total/s (processed: {effective_messages}, total: {lidar_message_count}, elapsed: {elapsed_time:.2f}s)")
             last_lidar_rate_log = current_time
 
-        positions = message["data"]["data"].get("positions", [])
+        # Handle both libvoxel and native decoder formats
+        data = message["data"]["data"]
         origin = message["data"].get("origin", [])
-        print(f"[DEBUG] Raw positions length: {len(positions)}")
         
-        points = np.array([positions[i:i+3] for i in range(0, len(positions), 3)], dtype=np.float32)
-        total_points = len(points)
-        unique_points = np.unique(points, axis=0)
-        print(f"[DEBUG] Total points: {total_points}, Unique points: {len(unique_points)}")
-
-        # Save to CSV if requested
-        if args.csv_write and lidar_csv_writer:
-            lidar_csv_writer.writerow([
-                message["data"]["stamp"],
-                message["data"]["frame_id"],
-                message["data"]["resolution"],
-                message["data"]["src_size"],
-                message["data"]["origin"],
-                message["data"]["width"],
-                len(unique_points),
-                unique_points.tolist()
-            ])
-            lidar_csv_file.flush()
-
-        if unique_points.size > 0:
-            points = rotate_points(unique_points, ROTATE_X_ANGLE, ROTATE_Z_ANGLE)
-            # Apply Y-value filtering
-            points_before_filter = len(points)
-            points = points[(points[:, 1] >= minYValue) & (points[:, 1] <= maxYValue)]
-            unique_points = np.unique(points, axis=0)
-            print(f"[DEBUG] Points before Y-filter: {points_before_filter}, after Y-filter: {len(unique_points)} (Y range: {minYValue}-{maxYValue})")
-            
-            if unique_points.size > 0:
-                center_x = float(np.mean(unique_points[:, 0]))
-                center_y = float(np.mean(unique_points[:, 1]))
-                center_z = float(np.mean(unique_points[:, 2]))
-                offset_points = unique_points - np.array([center_x, center_y, center_z])
-                print(f"[DEBUG] Center: ({center_x:.2f}, {center_y:.2f}, {center_z:.2f})")
-            else:
-                offset_points = np.empty((0, 3), dtype=np.float32)
-                print("[DEBUG] No points after Y-filtering")
+        # Check if using native decoder (returns "points") or libvoxel decoder (returns "positions")
+        if "points" in data:
+            # Native decoder format
+            points = data["points"]
+            if callable(points):
+                points = points()  # Call the function to get the actual points
+            points = np.array(points, dtype=np.float32)
         else:
-            unique_points = np.empty((0, 3), dtype=np.float32)
-            offset_points = unique_points
-            print("[DEBUG] No unique points from raw data")
-
-        # Color by height (z) and log to Rerun
-        if offset_points.shape[0] > 0:
-            z = offset_points[:, 2]
-            z_min, z_max = z.min(), z.max()
-            norm_z = (z - z_min) / (z_max - z_min + 1e-6)
-            colors = np.stack([
-                (norm_z * 255).astype(np.uint8),
-                np.full_like(norm_z, 128, dtype=np.uint8),
-                (255 - norm_z * 255).astype(np.uint8)
-            ], axis=1)
-            radii = np.full(offset_points.shape[0], 0.05, dtype=np.float32) * RADII_FUDGE_FACTOR
-            print(f"[DEBUG] Logging {len(offset_points)} points to Rerun with Z range: {z_min:.2f} to {z_max:.2f}")
-            rr.log("lidar/points", rr.Points3D(offset_points, colors=colors, radii=radii))
-        else:
-            print("[DEBUG] No points to log to Rerun")
-
-        lidar_message_count += 1
-        if lidar_message_count % 10 == 0:  # Print every 10 messages
-            print(f"LIDAR Message {lidar_message_count}: Total points={total_points}, Unique points={len(unique_points)}")
+            # Libvoxel decoder format
+            positions = data.get("positions", [])
+            points = np.array([positions[i:i+3] for i in range(0, len(positions), 3)], dtype=np.float32)
+        
+        print(f"[DEBUG] Raw points length: {len(points)}")
+        
+        # Process points with accumulation if enabled
+        process_points_with_accumulation(
+            points=points,
+            message_data=message["data"],
+            accumulator=accumulator,
+            single_frame_callback=process_single_frame,
+            accumulated_callback=process_accumulated_cloud,
+            csv_writer=lidar_csv_writer,
+            csv_file=lidar_csv_file
+        )
 
     except Exception as e:
         logging.error(f"Error in LIDAR callback: {e}")
@@ -377,37 +445,16 @@ async def read_csv_and_emit(csv_file):
                         else:
                             points = np.array([item for item in positions if isinstance(item, list) and len(item) == 3], dtype=np.float32)
                         
-                        if points.size > 0:
-                            points = rotate_points(points, ROTATE_X_ANGLE, ROTATE_Z_ANGLE)
-                            # Apply Y-value filtering
-                            points = points[(points[:, 1] >= minYValue) & (points[:, 1] <= maxYValue)]
-                            unique_points = np.unique(points, axis=0)
-                            
-                            if unique_points.size > 0:
-                                center_x = float(np.mean(unique_points[:, 0]))
-                                center_y = float(np.mean(unique_points[:, 1]))
-                                center_z = float(np.mean(unique_points[:, 2]))
-                                offset_points = unique_points - np.array([center_x, center_y, center_z])
-                            else:
-                                offset_points = np.empty((0, 3), dtype=np.float32)
-                        else:
-                            unique_points = np.empty((0, 3), dtype=np.float32)
-                            offset_points = unique_points
-                            
-                        # Color by height (z)
-                        if offset_points.shape[0] > 0:
-                            z = offset_points[:, 2]
-                            z_min, z_max = z.min(), z.max()
-                            norm_z = (z - z_min) / (z_max - z_min + 1e-6)
-                            colors = np.stack([
-                                (norm_z * 255).astype(np.uint8),
-                                np.full_like(norm_z, 128, dtype=np.uint8),
-                                (255 - norm_z * 255).astype(np.uint8)
-                            ], axis=1)
-                            radii = np.full(offset_points.shape[0], 0.05, dtype=np.float32) * RADII_FUDGE_FACTOR
-                            rr.log("lidar/points", rr.Points3D(offset_points, colors=colors, radii=radii))
-                            
-                        print(f"LIDAR Message {lidar_message_count}/{total_messages}: Unique points={len(unique_points)}")
+                        # Process points with accumulation if enabled
+                        process_points_with_accumulation(
+                            points=points,
+                            message_data=lidar_row,
+                            accumulator=accumulator,
+                            single_frame_callback=process_single_frame,
+                            accumulated_callback=process_accumulated_cloud,
+                            csv_writer=None,
+                            csv_file=None
+                        )
                         
                         # Add a small delay for visualization
                         await asyncio.sleep(0.1)
@@ -444,11 +491,17 @@ def run_asyncio_loop(loop):
 
 def main():
     """Main function to coordinate video and LIDAR streaming."""
-    global stop_flag
+    global stop_flag, accumulator
     
     print(f"Combined Video+LIDAR Visualization v{VERSION}")
     print(f"Video enabled: {ENABLE_VIDEO}")
     print(f"LIDAR enabled: {ENABLE_POINT_CLOUD}")
+    
+    # Create accumulator if accumulation is enabled
+    accumulator = create_accumulator_from_args(args)
+    if accumulator:
+        print(f"Point cloud accumulation enabled: max_clouds={accumulator.max_clouds}, "
+              f"max_age={accumulator.max_age_seconds}s, voxel_size={accumulator.voxel_size}m")
     
     if args.csv_read:
         print(f"Reading from CSV: {args.csv_read}")
