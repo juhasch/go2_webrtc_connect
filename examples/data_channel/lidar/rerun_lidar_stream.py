@@ -13,13 +13,11 @@ import rerun as rr
 import asyncio
 from go2_webrtc_driver.webrtc_driver import Go2WebRTCConnection, WebRTCConnectionMethod
 from go2_webrtc_driver.lidar.point_cloud_accumulator import (
-    PointCloudAccumulator, 
-    create_accumulator_from_args, 
+    create_accumulator_from_args,
     add_accumulation_args,
-    process_points_with_accumulation
+    process_points_with_accumulation,
 )
 from datetime import datetime
-import os
 
 logging.basicConfig(level=logging.FATAL)
 
@@ -28,7 +26,7 @@ csv.field_size_limit(sys.maxsize)
 
 rr.init("go2_lidar_points3d", spawn=True)
 
-VERSION = "1.0.20"
+VERSION = "1.0.21"
 
 ROTATE_X_ANGLE = 0.0  # No rotation around X
 ROTATE_Z_ANGLE = 0.0  # No rotation around Z
@@ -154,11 +152,46 @@ def process_single_frame(points: np.ndarray, message_data: dict, csv_writer=None
         z = offset_points[:, 2]
         z_min, z_max = z.min(), z.max()
         norm_z = (z - z_min) / (z_max - z_min + 1e-6)
-        colors = np.stack([
-            (norm_z * 255).astype(np.uint8),
-            np.full_like(norm_z, 128, dtype=np.uint8),
-            (255 - norm_z * 255).astype(np.uint8)
-        ], axis=1)
+
+        # Vivid rainbow colormap (HSV hue from blue->red)
+        # Map low z to blue (h≈2/3), high z to red (h≈0)
+        hue = (2.0 / 3.0) * (1.0 - norm_z)  # range [0, 2/3]
+        saturation = np.ones_like(hue)
+        value = np.ones_like(hue)
+
+        # Vectorized HSV->RGB conversion
+        hh = hue * 6.0
+        c = value * saturation
+        x = c * (1.0 - np.abs((hh % 2.0) - 1.0))
+        m = value - c
+
+        sextant = np.floor(hh).astype(int) % 6
+        r_prime = np.zeros_like(hue)
+        g_prime = np.zeros_like(hue)
+        b_prime = np.zeros_like(hue)
+
+        mask0 = sextant == 0
+        r_prime[mask0], g_prime[mask0], b_prime[mask0] = c[mask0], x[mask0], 0
+
+        mask1 = sextant == 1
+        r_prime[mask1], g_prime[mask1], b_prime[mask1] = x[mask1], c[mask1], 0
+
+        mask2 = sextant == 2
+        r_prime[mask2], g_prime[mask2], b_prime[mask2] = 0, c[mask2], x[mask2]
+
+        mask3 = sextant == 3
+        r_prime[mask3], g_prime[mask3], b_prime[mask3] = 0, x[mask3], c[mask3]
+
+        mask4 = sextant == 4
+        r_prime[mask4], g_prime[mask4], b_prime[mask4] = x[mask4], 0, c[mask4]
+
+        mask5 = sextant == 5
+        r_prime[mask5], g_prime[mask5], b_prime[mask5] = c[mask5], 0, x[mask5]
+
+        r = ((r_prime + m) * 255.0).clip(0, 255).astype(np.uint8)
+        g = ((g_prime + m) * 255.0).clip(0, 255).astype(np.uint8)
+        b = ((b_prime + m) * 255.0).clip(0, 255).astype(np.uint8)
+        colors = np.stack([r, g, b], axis=1)
         radii = np.full(offset_points.shape[0], 0.05, dtype=np.float32) * RADII_FUDGE_FACTOR
         rr.log("lidar/points", rr.Points3D(offset_points, colors=colors, radii=radii))
 
@@ -187,11 +220,44 @@ def process_accumulated_cloud(accumulated_points: np.ndarray) -> None:
     z = offset_points[:, 2]
     z_min, z_max = z.min(), z.max()
     norm_z = (z - z_min) / (z_max - z_min + 1e-6)
-    colors = np.stack([
-        (norm_z * 255).astype(np.uint8),
-        np.full_like(norm_z, 128, dtype=np.uint8),
-        (255 - norm_z * 255).astype(np.uint8)
-    ], axis=1)
+
+    # Vivid rainbow colormap (HSV hue from blue->red)
+    hue = (2.0 / 3.0) * (1.0 - norm_z)
+    saturation = np.ones_like(hue)
+    value = np.ones_like(hue)
+
+    hh = hue * 6.0
+    c = value * saturation
+    x = c * (1.0 - np.abs((hh % 2.0) - 1.0))
+    m = value - c
+
+    sextant = np.floor(hh).astype(int) % 6
+    r_prime = np.zeros_like(hue)
+    g_prime = np.zeros_like(hue)
+    b_prime = np.zeros_like(hue)
+
+    mask0 = sextant == 0
+    r_prime[mask0], g_prime[mask0], b_prime[mask0] = c[mask0], x[mask0], 0
+
+    mask1 = sextant == 1
+    r_prime[mask1], g_prime[mask1], b_prime[mask1] = x[mask1], c[mask1], 0
+
+    mask2 = sextant == 2
+    r_prime[mask2], g_prime[mask2], b_prime[mask2] = 0, c[mask2], x[mask2]
+
+    mask3 = sextant == 3
+    r_prime[mask3], g_prime[mask3], b_prime[mask3] = 0, x[mask3], c[mask3]
+
+    mask4 = sextant == 4
+    r_prime[mask4], g_prime[mask4], b_prime[mask4] = x[mask4], 0, c[mask4]
+
+    mask5 = sextant == 5
+    r_prime[mask5], g_prime[mask5], b_prime[mask5] = c[mask5], 0, x[mask5]
+
+    r = ((r_prime + m) * 255.0).clip(0, 255).astype(np.uint8)
+    g = ((g_prime + m) * 255.0).clip(0, 255).astype(np.uint8)
+    b = ((b_prime + m) * 255.0).clip(0, 255).astype(np.uint8)
+    colors = np.stack([r, g, b], axis=1)
     radii = np.full(offset_points.shape[0], 0.05, dtype=np.float32) * RADII_FUDGE_FACTOR
     
     rr.log("lidar/accumulated_points", rr.Points3D(offset_points, colors=colors, radii=radii))
@@ -240,7 +306,6 @@ async def lidar_webrtc_connection():
 
                     # Handle both libvoxel and native decoder formats
                     data = message["data"]["data"]
-                    origin = message["data"].get("origin", [])
                     
                     # Check if using native decoder (returns "points") or libvoxel decoder (returns "positions")
                     if "points" in data:
@@ -311,10 +376,6 @@ async def read_csv_and_emit(csv_file):
     global message_count
     print(f"Reading CSV file: {csv_file}")
     try:
-        # Calculate total messages (count lines minus header)
-        with open(csv_file, mode='r', newline='', encoding='utf-8') as f_count:
-            total_messages = sum(1 for _ in f_count) -1
-        
         with open(csv_file, mode='r', newline='', encoding='utf-8') as lidar_file:
             lidar_reader = csv.DictReader(lidar_file)
             for lidar_row in lidar_reader:
