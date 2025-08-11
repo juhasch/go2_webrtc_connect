@@ -4,6 +4,7 @@ This repository contains a Python implementation of the WebRTC driver to connect
 
 
 ```
+% export ROBOT_IP=192.168.0.197
 % python examples/data_channel/move_test.py
 🔌 Initializing robot connection...
 🔗 Connecting to robot...
