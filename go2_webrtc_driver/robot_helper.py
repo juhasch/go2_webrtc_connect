@@ -40,11 +40,12 @@ import logging
 import json
 import sys
 from typing import Optional, Dict, Any, Callable, Union, List
-# from contextlib import asynccontextmanager
 from enum import Enum
 
 from .webrtc_driver import Go2WebRTCConnection, WebRTCConnectionMethod
 from .constants import RTC_TOPIC, SPORT_CMD
+
+logging.getLogger('aioice.ice').setLevel(logging.CRITICAL)
 
 
 class RobotMode(Enum):

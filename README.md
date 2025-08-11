@@ -110,6 +110,8 @@ pip install ".[dev,docs,examples]"
 ## Usage 
 Example programs are located in the /example directory.
 
+See [troubleshooting](troubleshooting.md) when you have problems connecting to the robot.
+
 ### Thanks
 
 A big thank you to TheRoboVerse community! Visit us at [TheRoboVerse](https://theroboverse.com) for more information and support.

@@ -32,11 +32,9 @@ async def sit_down_demo(robot: Go2RobotHelper):
     print("🪑 Starting sit down demonstration...")
     
     # Make the robot sit down
-    await robot.execute_command("Sit", wait_time=3)
-    
-    print("✅ Robot is now sitting down!")
-    print("🪑 Sit down demonstration completed!")
-
+    await robot.execute_command("Sit", wait_time=10)
+    await robot.execute_command("StandUp", wait_time=3)
+ 
 
 if __name__ == "__main__":
     """
