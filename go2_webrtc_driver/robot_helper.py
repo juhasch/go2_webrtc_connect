@@ -519,30 +519,49 @@ class Go2RobotHelper:
         """
         print("📡 Checking obstacle detection status...")
         
+        # First try explicit SwitchGet RPC (api_id=1002)
+        try:
+            import json
+            response = await self.conn.datachannel.pub_sub.publish_request_new(
+                RTC_TOPIC['OBSTACLES_AVOID'],
+                {
+                    "api_id": 1002,  # SwitchGet
+                    "parameter": {}
+                }
+            )
+            if response and response.get('data', {}).get('header', {}).get('status', {}).get('code') == 0:
+                payload = response.get('data', {}).get('data')
+                data = json.loads(payload) if isinstance(payload, str) else (payload or {})
+                current_status = bool(data.get('enable', False))
+                status_text = "🟢 ENABLED" if current_status else "🔴 DISABLED"
+                print(f"📊 Obstacle detection status: {status_text}")
+                return current_status
+        except Exception as e:
+            # Fallback to subscription method below
+            self.logger.debug(f"SwitchGet status query failed, falling back to MULTIPLE_STATE: {e}")
+
+        # Fallback: subscribe to MULTIPLE_STATE and read obstaclesAvoidSwitch
         try:
             import json
             status_received = False
             current_status = None
-            
+
             def multiplestate_callback(message):
                 nonlocal status_received, current_status
                 try:
-                    # Parse the message data
                     data = json.loads(message['data']) if isinstance(message['data'], str) else message['data']
                     current_status = data.get('obstaclesAvoidSwitch', False)
                     status_received = True
                 except Exception as e:
                     self.logger.error(f"Error parsing multiplestate data: {e}")
-            
-            # Subscribe to multiple state topic to get current status
+
             self.conn.datachannel.pub_sub.subscribe(RTC_TOPIC['MULTIPLE_STATE'], multiplestate_callback)
-            
-            # Wait for status data (timeout after 5 seconds)
+
             wait_time = 0
             while not status_received and wait_time < 5.0:
                 await asyncio.sleep(0.1)
                 wait_time += 0.1
-                
+
             if status_received:
                 status_text = "🟢 ENABLED" if current_status else "🔴 DISABLED"
                 print(f"📊 Obstacle detection status: {status_text}")
@@ -550,7 +569,7 @@ class Go2RobotHelper:
             else:
                 print("⏱️ Status query timeout - no multiplestate data received")
                 return None
-                
+
         except Exception as e:
             self.logger.error(f"Error getting obstacle detection status: {e}")
             print(f"❌ Failed to query obstacle detection status: {e}")
@@ -571,8 +590,8 @@ class Go2RobotHelper:
         print(f"{emoji} {action_text} obstacle detection...")
         
         try:
-            # Send enable/disable command
-            api_id = 1001 if enable else 1002  # 1001 for enable, 1002 for disable
+            # Send enable/disable command via SwitchSet (api_id=1001)
+            api_id = 1001
             response = await self.conn.datachannel.pub_sub.publish_request_new(
                 RTC_TOPIC['OBSTACLES_AVOID'], 
                 {

@@ -78,4 +78,8 @@ actions:
       parameter: {x: 0.0, y: -0.3, z: 0.0}
       wait_time: 0.8
 
+obstacle:
+  enable_on_start: true
+  toggle_button_index: 6
+
 

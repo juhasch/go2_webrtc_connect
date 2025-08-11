@@ -6,11 +6,14 @@ import sys
 from typing import Dict, Tuple
 
 import os
+import time
+import random
+import json
 import pygame
 import yaml
 
 from go2_webrtc_driver import Go2RobotHelper
-from go2_webrtc_driver.constants import WebRTCConnectionMethod
+from go2_webrtc_driver.constants import WebRTCConnectionMethod, RTC_TOPIC, DATA_CHANNEL_TYPE
 
 # Allow running as a standalone script without package context
 try:
@@ -95,7 +98,12 @@ async def safe_execute(
         return False
 
 
-async def run_controller(cfg: GamepadConfig) -> None:
+def _dbg(enabled: bool, msg: str) -> None:
+    if enabled:
+        print(msg)
+
+
+async def run_controller(cfg: GamepadConfig, debug: bool = False) -> None:
     # Minimal logs
     logging.getLogger().setLevel(logging.ERROR)
 
@@ -116,9 +124,27 @@ async def run_controller(cfg: GamepadConfig) -> None:
         detailed_state_display=False,
         logging_level=logging.ERROR,
     ) as robot:
-        await robot.ensure_mode("normal")
-        await safe_execute(robot, "StandUp", wait_time=1.2)
         await ensure_programmatic_control(robot)
+        _dbg(debug, "[dbg] Programmatic control prepared (joystick/free-walk disabled, speed set)")
+
+        # Optional: enable obstacle avoidance on start and allow remote API control for avoid-move
+        obstacle_enabled = False
+        if cfg.obstacle.enable_on_start:
+            ok = await robot.obstacle_detection("enable")
+            if ok:
+                obstacle_enabled = True
+                _dbg(debug, "[dbg] Obstacle avoidance ENABLE requested: ok")
+                try:
+                    await robot.conn.datachannel.pub_sub.publish_request_new(  # type: ignore[attr-defined]
+                        RTC_TOPIC["OBSTACLES_AVOID"],
+                        {
+                            "api_id": 1004,
+                            "parameter": {"is_remote_commands_from_api": True},
+                        },
+                    )
+                    _dbg(debug, "[dbg] Set remote API control (1004) -> True: ok")
+                except Exception:
+                    _dbg(debug, "[dbg] Set remote API control (1004) -> True: failed")
 
         # Init pygame
         pygame.init()
@@ -133,6 +159,7 @@ async def run_controller(cfg: GamepadConfig) -> None:
         limiter = RateLimiter(cfg.movement.send_interval_s)
         last_move: Tuple[float, float, float] = (0.0, 0.0, 0.0)
         idle_sent = True
+        last_avoid_keepalive = 0.0
 
         try:
             running = True
@@ -144,6 +171,27 @@ async def run_controller(cfg: GamepadConfig) -> None:
                         running = False
                     elif event.type == pygame.JOYBUTTONDOWN:
                         btn = event.button
+                        # Toggle obstacle detection if configured
+                        if cfg.obstacle.toggle_button_index is not None and btn == cfg.obstacle.toggle_button_index:
+                            status = await robot.obstacle_detection("status")
+                            if status is not None:
+                                new_state = not status
+                                ok = await robot.obstacle_detection("enable" if new_state else "disable")
+                                if ok:
+                                    obstacle_enabled = new_state
+                                    _dbg(debug, f"[dbg] Obstacle avoidance toggled -> {'ENABLED' if new_state else 'DISABLED'}")
+                                    try:
+                                        await robot.conn.datachannel.pub_sub.publish_request_new(  # type: ignore[attr-defined]
+                                            RTC_TOPIC["OBSTACLES_AVOID"],
+                                            {
+                                                "api_id": 1004,
+                                                "parameter": {"is_remote_commands_from_api": new_state},
+                                            },
+                                        )
+                                        _dbg(debug, f"[dbg] Set remote API control (1004) -> {new_state}: ok")
+                                    except Exception:
+                                        _dbg(debug, f"[dbg] Set remote API control (1004) -> {new_state}: failed")
+                            continue
                         for ba in cfg.actions.buttons:
                             if ba.index == btn:
                                 await safe_execute(robot, ba.command, ba.parameter, wait_time=ba.wait_time)
@@ -166,6 +214,21 @@ async def run_controller(cfg: GamepadConfig) -> None:
 
                 # Continuous axes → Move
                 now = pygame.time.get_ticks() / 1000.0
+
+                # Keep 1004 true while avoidance is enabled (module can drop this)
+                if obstacle_enabled and (now - last_avoid_keepalive) > 3.0:
+                    try:
+                        await robot.conn.datachannel.pub_sub.publish_request_new(  # type: ignore[attr-defined]
+                            RTC_TOPIC["OBSTACLES_AVOID"],
+                            {
+                                "api_id": 1004,
+                                "parameter": {"is_remote_commands_from_api": True},
+                            },
+                        )
+                        _dbg(debug, "[dbg] Keepalive: 1004 -> True")
+                    except Exception:
+                        _dbg(debug, "[dbg] Keepalive: 1004 -> True (failed)")
+                    last_avoid_keepalive = now
                 if limiter.allow(now):
                     x, y, z = 0.0, 0.0, 0.0
                     for am in cfg.movement.axes:
@@ -192,18 +255,77 @@ async def run_controller(cfg: GamepadConfig) -> None:
                         abs(z - last_move[2]) > eps
                     )
                     if changed:
-                        ok = await safe_execute(robot, "Move", {"x": x, "y": y, "z": z}, wait_time=0.0)
+                        ok = False
+                        if obstacle_enabled:
+                            # Send obstacle-aware move via OBSTACLES_AVOID.Move (1003)
+                            try:
+                                _dbg(debug, f"[dbg] Avoid-Move 1003 send: x={x:.3f}, y={y:.3f}, yaw={z:.3f}")
+                                await robot.conn.datachannel.pub_sub.publish_request_new(  # type: ignore[attr-defined]
+                                    RTC_TOPIC["OBSTACLES_AVOID"],
+                                    {
+                                        "api_id": 1003,
+                                        "parameter": {"x": x, "y": y, "yaw": z, "mode": 0},
+                                    },
+                                )
+                                ok = True
+                            except Exception:
+                                # Fallback to fire-and-forget
+                                try:
+                                    req_id = int(time.time() * 1000) % 2147483648 + random.randint(0, 1000)
+                                    robot.conn.datachannel.pub_sub.publish_without_callback(  # type: ignore[attr-defined]
+                                        RTC_TOPIC["OBSTACLES_AVOID"],
+                                        {
+                                            "header": {"identity": {"id": req_id, "api_id": 1003}},
+                                            "parameter": json.dumps({"x": x, "y": y, "yaw": z, "mode": 0}),
+                                        },
+                                        DATA_CHANNEL_TYPE["REQUEST"],
+                                    )
+                                    ok = True
+                                except Exception:
+                                    _dbg(debug, "[dbg] Avoid-Move send failed (both modes)")
+                                    ok = False
+                        else:
+                            _dbg(debug, f"[dbg] Sport-Move 1008 send: x={x:.3f}, y={y:.3f}, z={z:.3f}")
+                            ok = await safe_execute(robot, "Move", {"x": x, "y": y, "z": z}, wait_time=0.0)
                         if ok:
                             last_move = (x, y, z)
                             idle_sent = False
                     else:
                         # If near zero and not yet stopped, send StopMove optionally
                         if cfg.movement.send_stop_on_idle and not idle_sent and abs(x) < eps and abs(y) < eps and abs(z) < eps:
-                            await safe_execute(robot, "StopMove", wait_time=0.0)
+                            if obstacle_enabled:
+                                try:
+                                    req_id = int(time.time() * 1000) % 2147483648 + random.randint(0, 1000)
+                                    _dbg(debug, f"[dbg] Avoid-Stop 1003 zero send: id={req_id}")
+                                    robot.conn.datachannel.pub_sub.publish_without_callback(  # type: ignore[attr-defined]
+                                        RTC_TOPIC["OBSTACLES_AVOID"],
+                                        {
+                                            "header": {"identity": {"id": req_id, "api_id": 1003}},
+                                            "parameter": json.dumps({"x": 0.0, "y": 0.0, "yaw": 0.0, "mode": 0}),
+                                        },
+                                        DATA_CHANNEL_TYPE["REQUEST"],
+                                    )
+                                except Exception:
+                                    _dbg(debug, "[dbg] Avoid-Stop send failed")
+                                    pass
+                            else:
+                                _dbg(debug, "[dbg] Sport StopMove send")
+                                await safe_execute(robot, "StopMove", wait_time=0.0)
                             idle_sent = True
 
                 clock.tick(120)
         finally:
+            try:
+                await robot.conn.datachannel.pub_sub.publish_request_new(  # type: ignore[attr-defined]
+                    RTC_TOPIC["OBSTACLES_AVOID"],
+                    {
+                        "api_id": 1004,
+                        "parameter": {"is_remote_commands_from_api": False},
+                    },
+                )
+                _dbg(debug, "[dbg] Set remote API control (1004) -> False: ok")
+            except Exception:
+                _dbg(debug, "[dbg] Set remote API control (1004) -> False: failed")
             await safe_execute(robot, "StopMove", wait_time=0.1)
             await safe_execute(robot, "StandUp", wait_time=1.0)
 
@@ -217,6 +339,7 @@ def load_config(path: str) -> GamepadConfig:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Gamepad → Go2 controller")
     parser.add_argument("--config", type=str, default=None, help="Path to YAML mapping file")
+    parser.add_argument("--debug", action="store_true", help="Enable verbose debug prints")
     args = parser.parse_args()
 
     config_path = args.config or (
@@ -225,7 +348,7 @@ def main() -> None:
     cfg = load_config(config_path)
 
     try:
-        asyncio.run(run_controller(cfg))
+        asyncio.run(run_controller(cfg, debug=args.debug))
     except KeyboardInterrupt:
         pass
 

@@ -73,6 +73,13 @@ class ActionConfig(BaseModel):
     hat: Optional[HatMapping] = None
 
 
+class ObstacleConfig(BaseModel):
+    """Obstacle avoidance control options."""
+
+    enable_on_start: bool = False
+    toggle_button_index: Optional[int] = None
+
+
 class ConnectionConfig(BaseModel):
     method: Optional[str] = Field(default="sta", description="ap|sta|remote")
     ip: Optional[str] = None
@@ -87,5 +94,6 @@ class GamepadConfig(BaseModel):
     connection: ConnectionConfig = Field(default_factory=ConnectionConfig)
     movement: MovementConfig = Field(default_factory=MovementConfig)
     actions: ActionConfig = Field(default_factory=ActionConfig)
+    obstacle: ObstacleConfig = Field(default_factory=ObstacleConfig)
 
 
