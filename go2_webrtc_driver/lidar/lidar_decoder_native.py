@@ -71,7 +71,15 @@ Version: 1.0
 import numpy as np
 import lz4.block
 from typing import Dict, Any, List, Tuple, Union
+from time import time
 
+# Try to import numba for optimization, fall back gracefully if not available
+try:
+    from numba import jit, prange
+    NUMBA_AVAILABLE = True
+except ImportError:
+    NUMBA_AVAILABLE = False
+    print("Numba not available. Using standard Python implementation.")
 
 def decompress(compressed_data: bytes, decomp_size: int) -> bytes:
     """
@@ -104,6 +112,53 @@ def decompress(compressed_data: bytes, decomp_size: int) -> bytes:
         uncompressed_size=decomp_size
     )
     return decompressed
+
+
+@jit(nopython=True, cache=True)
+def _bits_to_points_numba(buf_array: np.ndarray) -> np.ndarray:
+    """
+    Numba-optimized version of bits_to_points core logic.
+    
+    This function processes the bit-packed voxel data using Numba JIT compilation
+    for significant performance improvements.
+    
+    Args:
+        buf_array: numpy array of uint8 values representing voxel occupancy
+        
+    Returns:
+        numpy array of 3D points as (x, y, z) coordinates
+    """
+    # Pre-allocate arrays for better performance
+    max_points = len(buf_array) * 8  # Maximum possible points
+    points_x = np.empty(max_points, dtype=np.int32)
+    points_y = np.empty(max_points, dtype=np.int32)
+    points_z = np.empty(max_points, dtype=np.int32)
+    
+    point_count = 0
+    
+    for n in range(len(buf_array)):
+        byte_value = buf_array[n]
+        if byte_value == 0:
+            continue  # Skip empty bytes
+            
+        z = n // 0x800
+        n_slice = n % 0x800
+        y = n_slice // 0x10
+        x_base = (n_slice % 0x10) * 8
+
+        for bit_pos in range(8):
+            if byte_value & (1 << (7 - bit_pos)):
+                x = x_base + bit_pos
+                points_x[point_count] = x
+                points_y[point_count] = y
+                points_z[point_count] = z
+                point_count += 1
+    
+    # Return only the valid points
+    if point_count > 0:
+        return np.column_stack((points_x[:point_count], points_y[:point_count], points_z[:point_count]))
+    else:
+        return np.empty((0, 3), dtype=np.int32)
 
 
 def bits_to_points(buf: bytes, origin: List[float], resolution: float = 0.05) -> np.ndarray:
@@ -145,22 +200,36 @@ def bits_to_points(buf: bytes, origin: List[float], resolution: float = 0.05) ->
         - x = ((n % 0x800) % 0x10) * 8 + bit_position (column)
     """
     buf = np.frombuffer(bytearray(buf), dtype=np.uint8)
-    nonzero_indices = np.nonzero(buf)[0]
-    points = []
+    
+    # Use Numba-optimized version if available
+    if NUMBA_AVAILABLE:
+        start_time = time()
+        points = _bits_to_points_numba(buf)
+        end_time = time()
+        #print(f"Time taken (Numba): {end_time - start_time} seconds")
+    else:
+        # Fall back to original implementation
+        nonzero_indices = np.nonzero(buf)[0]
+        points_list = []
+        start_time = time()
+        
+        for n in nonzero_indices:
+            byte_value = buf[n]
+            z = n // 0x800
+            n_slice = n % 0x800
+            y = n_slice // 0x10
+            x_base = (n_slice % 0x10) * 8
 
-    for n in nonzero_indices:
-        byte_value = buf[n]
-        z = n // 0x800
-        n_slice = n % 0x800
-        y = n_slice // 0x10
-        x_base = (n_slice % 0x10) * 8
-
-        for bit_pos in range(8):
-            if byte_value & (1 << (7 - bit_pos)):
-                x = x_base + bit_pos
-                points.append((x, y, z))
-
-    return np.array(points) * resolution + origin
+            for bit_pos in range(8):
+                if byte_value & (1 << (7 - bit_pos)):
+                    x = x_base + bit_pos
+                    points_list.append((x, y, z))
+        
+        end_time = time()
+        #print(f"Time taken (Python): {end_time - start_time} seconds")
+        points = np.array(points_list) if points_list else np.empty((0, 3), dtype=np.int32)
+    
+    return points * resolution + origin
 
 
 class LidarDecoder:
