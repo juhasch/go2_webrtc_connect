@@ -326,7 +326,7 @@ def index():
     <body>
         <script>
             let scene, camera, renderer, controls, pointCloud, voxelMesh;
-            let voxelSize = 1.0;
+            let voxelSize = 0.5;
             let transparency = .5;
             let wireframe = false;
             let lightIntensity = .5;

@@ -43,7 +43,7 @@ from typing import Optional, Dict, Any, Callable, Union, List
 from enum import Enum
 
 from .webrtc_driver import Go2WebRTCConnection, WebRTCConnectionMethod
-from .constants import RTC_TOPIC, SPORT_CMD
+from .constants import RTC_TOPIC, SPORT_CMD, DATA_CHANNEL_TYPE
 
 logging.getLogger('aioice.ice').setLevel(logging.CRITICAL)
 
@@ -218,6 +218,10 @@ class Go2RobotHelper:
         self._movement_prepared: bool = False  # Prepare joystick/speed once before first Move
         self._obstacle_remote_enabled: bool = False
         self._obstacle_keepalive_task: Optional[asyncio.Task] = None
+        # Track simple posture readiness for Move commands
+        self._is_standing: bool = True
+        # Require a BalanceStand before next Move after certain posture changes
+        self._needs_balance_stand: bool = False
         
         # Set up logging
         logging.basicConfig(level=logging_level)
@@ -428,6 +432,20 @@ class Go2RobotHelper:
                         print(f"⚠️ Move response code={code}, msg={msg}")
                 except Exception:
                     pass
+
+            # Update simple posture state based on command
+            try:
+                if command in ("StandUp", "BalanceStand", "RecoveryStand"):
+                    self._is_standing = True
+                elif command in ("StandDown", "Sit"):
+                    self._is_standing = False
+                # Mark that we need BalanceStand before next Move when posture changed
+                if command in ("StandDown", "Sit", "StandUp"):
+                    self._needs_balance_stand = True
+                elif command == "BalanceStand":
+                    self._needs_balance_stand = False
+            except Exception:
+                pass
 
             print(f"✅ Command {command} executed successfully")
             return response
@@ -755,6 +773,14 @@ class Go2RobotHelper:
 
     async def sport_move(self, x: float, y: float, z: float) -> bool:
         try:
+            # Ensure locomotion is enabled (BalanceStand) after StandDown/Sit/StandUp
+            if self._needs_balance_stand:
+                try:
+                    await self.execute_command("BalanceStand", wait_time=0.3)
+                except Exception:
+                    pass
+                self._needs_balance_stand = False
+            
             await self.execute_command("Move", {"x": x, "y": y, "z": z}, wait_time=0.0)
             return True
         except Exception:

@@ -88,8 +88,12 @@ docs = [
 examples = [
     "matplotlib>=3.5.0",
     "numpy>=1.21.0",
-    "scipy>=1.7.0",
-    "mediapipe>=0.10.0"
+    "scipy>=1.7.0"
+]    
+apps = [
+    "mediapipe>=0.10.0",
+    "rerun-sdk",
+    "pygame"
 ]
 
 [project.entry-points."console_scripts"]
@@ -98,7 +102,7 @@ go2-scanner = "go2_webrtc_driver.multicast_scanner:main"
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["go2_webrtc_driver*"]
-exclude = ["tests*", "docs*", "examples*"]
+exclude = ["tests*", "docs*", "examples*", "apps*" ]
 
 [tool.setuptools.package-data]
 "go2_webrtc_driver.lidar" = ["*.wasm"]
@@ -177,6 +181,7 @@ source = ["go2_webrtc_driver"]
 omit = [
     "*/tests/*",
     "*/examples/*",
+    "*/apps/*",
     "*/__pycache__/*"
 ]
 
