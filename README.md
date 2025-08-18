@@ -122,7 +122,7 @@ pip install ".[examples]"
 pip install ".[docs]"
 
 # All optional dependencies
-pip install ".[dev,docs,examples]"
+pip install ".[dev,docs,examples,apps]"
 ```
 
 ## Usage 
