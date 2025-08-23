@@ -100,15 +100,8 @@ def save_points_to_pcd(points: np.ndarray, filename: str) -> None:
         structured_points['y'] = points[:, 1]
         structured_points['z'] = points[:, 2]
         
-        # Create PointCloud object
-        pc = pypcd.PointCloud()
-        pc.pc_data = structured_points
-        pc.fields = ['x', 'y', 'z']
-        pc.count = [1, 1, 1]
-        pc.size = [4, 4, 4]  # float32 = 4 bytes
-        pc.type = ['F', 'F', 'F']  # F = float
-        pc.width = len(points)
-        pc.height = 1
+        # Use pypcd's from_array method which handles metadata automatically
+        pc = pypcd.PointCloud.from_array(structured_points)
         
         # Save PCD file
         filepath = os.path.join(pcd_dir, filename)
