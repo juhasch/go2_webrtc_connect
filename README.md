@@ -107,6 +107,26 @@ pip install ".[docs]"
 pip install ".[dev,docs,examples]"
 ```
 
+### Audio Dependencies
+
+For audio functionality (WebRTCAudioHub), additional dependencies are required:
+
+```sh
+# Install audio processing libraries
+pip install soundfile numpy scipy
+
+# System dependencies (Ubuntu/Debian)
+sudo apt-get install libsndfile1-dev
+
+# macOS (using Homebrew)
+brew install libsndfile
+
+# Windows (using conda)
+conda install libsndfile
+```
+
+**Note**: The `pydub` dependency has been replaced with `soundfile` for better Python 3.13 compatibility. Audio files are automatically converted from MP3 to WAV format when needed.
+
 ## Usage 
 Example programs are located in the /example directory.
 

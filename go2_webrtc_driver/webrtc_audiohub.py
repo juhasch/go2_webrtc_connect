@@ -59,7 +59,6 @@ import uuid
 import os
 import hashlib
 from typing import Dict, Any, Optional, List
-from pydub import AudioSegment
 from go2_webrtc_driver.constants import AUDIO_API
 from go2_webrtc_driver.webrtc_driver import Go2WebRTCConnection
 import asyncio
@@ -400,6 +399,54 @@ class WebRTCAudioHub:
         )
         return response
 
+    def _convert_mp3_to_wav(self, mp3_path: str) -> str:
+        """
+        Convert MP3 file to WAV format using soundfile
+        
+        Args:
+            mp3_path (str): Path to the MP3 file
+            
+        Returns:
+            str: Path to the converted WAV file
+            
+        Raises:
+            ImportError: If soundfile is not available
+            Exception: If conversion fails
+        """
+        try:
+            import soundfile as sf
+            import numpy as np
+        except ImportError:
+            raise ImportError("soundfile is required for MP3 to WAV conversion. Install with: pip install soundfile")
+        
+        try:
+            # Read MP3 file
+            data, samplerate = sf.read(mp3_path)
+            
+            # Convert to mono if stereo
+            if len(data.shape) > 1:
+                data = np.mean(data, axis=1)
+            
+            # Resample to 44.1kHz if needed
+            if samplerate != 44100:
+                from scipy import signal
+                # Calculate new length
+                new_length = int(len(data) * 44100 / samplerate)
+                # Resample
+                data = signal.resample(data, new_length)
+                samplerate = 44100
+            
+            # Create WAV file path
+            wav_path = mp3_path.replace('.mp3', '.wav')
+            
+            # Write WAV file
+            sf.write(wav_path, data, samplerate, subtype='PCM_16')
+            
+            return wav_path
+            
+        except Exception as e:
+            raise Exception(f"Failed to convert MP3 to WAV: {e}")
+
     async def upload_audio_file(self, audiofile_path: str) -> Dict[str, Any]:
         """
         Upload an audio file to the robot
@@ -439,11 +486,7 @@ class WebRTCAudioHub:
         # Convert MP3 to WAV if necessary
         if audiofile_path.endswith(".mp3"):
             self.logger.info("Converting MP3 to WAV")
-            audio = AudioSegment.from_mp3(audiofile_path)
-            # Set specific audio parameters for compatibility
-            audio = audio.set_frame_rate(44100)  # Standard sample rate
-            wav_file_path = audiofile_path.replace('.mp3', '.wav')
-            audio.export(wav_file_path, format='wav', parameters=["-ar", "44100"])
+            wav_file_path = self._convert_mp3_to_wav(audiofile_path)
         else:
             wav_file_path = audiofile_path
         
@@ -596,11 +639,7 @@ class WebRTCAudioHub:
         # Convert MP3 to WAV if necessary
         if audiofile_path.endswith(".mp3"):
             self.logger.info("Converting MP3 to WAV")
-            audio = AudioSegment.from_mp3(audiofile_path)
-            # Set specific audio parameters for compatibility
-            audio = audio.set_frame_rate(44100)  # Standard sample rate
-            wav_file_path = audiofile_path.replace('.mp3', '.wav')
-            audio.export(wav_file_path, format='wav', parameters=["-ar", "44100"])
+            wav_file_path = self._convert_mp3_to_wav(audiofile_path)
         else:
             wav_file_path = audiofile_path
 
