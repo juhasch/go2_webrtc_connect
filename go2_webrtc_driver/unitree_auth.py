@@ -278,37 +278,40 @@ def send_sdp_to_remote_peer(
         raise ValueError(error_msg)
 
 
-def send_sdp_to_local_peer(ip: str, sdp: str) -> Optional[str]:
+def send_sdp_to_local_peer(ip: str, sdp: str, legacy_auto: bool = False) -> Optional[str]:
     """
-    Send SDP offer to local Go2 robot with automatic fallback.
+    Send SDP offer to local Go2 robot.
     
-    This function attempts to send SDP data to a local robot using two
-    different methods, automatically falling back if the first method fails.
+    By default it uses the new encrypted method. If `legacy_auto` is True,
+    it will try the legacy method first and fall back to the new method on failure.
     
     Args:
         ip: Robot IP address
         sdp: SDP offer data as JSON string
+        legacy_auto: When True, attempt legacy method first, then fall back
+            to new method. When False (default), only the new method is used.
         
     Returns:
-        SDP answer from the robot, or None if both methods fail
+        SDP answer from the robot, or None if the used method(s) fail
         
     Example:
         >>> answer = send_sdp_to_local_peer("192.168.12.1", sdp_offer)
         >>> answer is not None
         True
     """
-    # Try the old method first (port 8081)
-    try:
-        logging.debug("Attempting SDP exchange using legacy method...")
-        response = send_sdp_to_local_peer_old_method(ip, sdp)
-        if response:
-            logging.debug("SDP exchange successful using legacy method")
-            return response
-        else:
-            logging.warning("Legacy method failed, trying new method...")
-    except Exception as e:
-        logging.error(f"Legacy method error: {e}")
-        logging.debug("Falling back to new method...")
+    if legacy_auto:
+        # Try the old method first (port 8081)
+        try:
+            logging.debug("Attempting SDP exchange using legacy method...")
+            response = send_sdp_to_local_peer_old_method(ip, sdp)
+            if response:
+                logging.debug("SDP exchange successful using legacy method")
+                return response
+            else:
+                logging.warning("Legacy method failed, trying new method...")
+        except Exception as e:
+            logging.error(f"Legacy method error: {e}")
+            logging.debug("Falling back to new method...")
 
     # Try the new method (port 9991)
     try:

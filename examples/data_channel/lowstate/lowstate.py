@@ -1,28 +1,34 @@
 """
 Go2 Robot Comprehensive Low State Monitoring - Updated with Go2RobotHelper
-========================================================================
+=======================================================================
 
 This example demonstrates comprehensive monitoring of the robot's low-level state data
 using the simplified Go2RobotHelper interface.
 
 Usage:
-    python lowstate.py
+    python lowstate.py [--once]
+
+Options:
+    --once   Fetch and display one low state update, then exit
 """
 
 import asyncio
+import argparse
+import sys
 import signal
+import os
 import logging
 from tabulate import tabulate
 from go2_webrtc_driver import Go2RobotHelper
 from go2_webrtc_driver.constants import RTC_TOPIC
+from typing import Optional
 
 # Suppress verbose logging from WebRTC components
 logging.getLogger('root').setLevel(logging.CRITICAL)
-logging.getLogger('aioice.ice').setLevel(logging.CRITICAL)
 logging.getLogger('urllib3').setLevel(logging.CRITICAL)
 
 
-def display_data(data):
+def display_data(data, clear_screen: bool = True):
     """
     Process and display comprehensive low state data from the robot
     
@@ -31,9 +37,9 @@ def display_data(data):
     motors, and system state.
     """
     try:
-        # Clear screen for clean display
-        import sys
-        sys.stdout.write("\033[H\033[J")
+        # Clear screen for clean display unless disabled
+        if clear_screen:
+            sys.stdout.write("\033[H\033[J")
         
         # Extract key information from low state data
         timestamp = data.get('stamp', None)
@@ -444,7 +450,7 @@ def display_data(data):
         traceback.print_exc()
 
 
-async def lowstate_monitoring_demo(robot: Go2RobotHelper):
+async def lowstate_monitoring_demo(robot: Go2RobotHelper, once: bool = False):
     """
     Demonstrate low state monitoring using the robot helper
     
@@ -456,23 +462,38 @@ async def lowstate_monitoring_demo(robot: Go2RobotHelper):
     # Get access to the underlying connection for data subscription
     conn = robot.conn
     
+    # If running in once mode, use an event to release after first message
+    first_message_event: Optional[asyncio.Event] = asyncio.Event() if once else None
+
     # Define callback function to handle lowstate data when received
     def lowstate_callback(message):
         current_message = message['data']
-        display_data(current_message)
+        display_data(current_message, clear_screen=(not once))
+        if first_message_event is not None and not first_message_event.is_set():
+            first_message_event.set()
     
     # Subscribe to the low state data
     conn.datachannel.pub_sub.subscribe(RTC_TOPIC['LOW_STATE'], lowstate_callback)
     print("✅ Monitoring low state data (Ctrl+C to stop)")
     print("=" * 80)
+
+    # If only one message is requested, wait for it, then unsubscribe and return
+    if once and first_message_event is not None:
+        try:
+            await first_message_event.wait()
+        finally:
+            try:
+                conn.datachannel.pub_sub.unsubscribe(RTC_TOPIC['LOW_STATE'])
+            except Exception:
+                pass
+        return
     
-    # Simple monitoring loop - cancellation handled at signal level
+    # Simple monitoring loop - allow cancellation to propagate cleanly
     try:
         while True:
             await asyncio.sleep(1)
     except asyncio.CancelledError:
-        print(f"\n🛑 Monitoring stopped")
-        raise  # Re-raise to propagate cancellation to context manager
+        raise
 
 
 if __name__ == "__main__":
@@ -483,42 +504,40 @@ if __name__ == "__main__":
     print("Press Ctrl+C to stop")
     print("=" * 30)
     
+    parser = argparse.ArgumentParser(description="Go2 Robot Low State Monitoring")
+    parser.add_argument("--once", action="store_true", help="Fetch one low state update and exit")
+    _args = parser.parse_args()
+
     async def main():
-        """Main async function with improved shutdown handling"""
+        """Main async function"""
         async with Go2RobotHelper(enable_state_monitoring=False) as robot:
-            await lowstate_monitoring_demo(robot)
-    
-    async def run_with_signal_handling():
-        """Run main with proper signal handling for immediate shutdown"""
-        # Create the main task
+            await lowstate_monitoring_demo(robot, once=_args.once)
+
+    async def _run_with_signals():
+        loop = asyncio.get_running_loop()
         main_task = asyncio.create_task(main())
-        
-        # Set up signal handler for graceful shutdown
-        def signal_handler():
-            print("\n✅ Stopped by user")
-            main_task.cancel()
-        
-        # Register signal handlers for SIGINT (Ctrl+C)
-        if hasattr(signal, 'SIGINT'):
-            loop = asyncio.get_running_loop()
-            loop.add_signal_handler(signal.SIGINT, signal_handler)
-        
+
+        def _immediate_exit():
+            try:
+                print("\n✅ Stopped by user")
+            finally:
+                os._exit(0)
+
+        for sig in (getattr(signal, "SIGINT", None), getattr(signal, "SIGTERM", None)):
+            if sig is not None:
+                try:
+                    loop.add_signal_handler(sig, _immediate_exit)
+                except NotImplementedError:
+                    pass
+
         try:
             await main_task
         except asyncio.CancelledError:
-            # Task was cancelled by signal handler - this is expected
             pass
-        except KeyboardInterrupt:
-            # Fallback in case signal handling doesn't work on this platform
-            print("\n✅ Stopped by user")
-        except Exception as e:
-            print(f"❌ Error: {e}")
-    
-    # Run with signal handling
+
     try:
-        asyncio.run(run_with_signal_handling())
+        asyncio.run(_run_with_signals())
     except KeyboardInterrupt:
-        # Fallback in case signal handling doesn't work on this platform
         print("\n✅ Stopped by user")
     except Exception as e:
         print(f"❌ Error: {e}")
