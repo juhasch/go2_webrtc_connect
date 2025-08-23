@@ -39,9 +39,17 @@ __version__ = "1.0.0"
 # Export main classes and constants for easier importing
 from .webrtc_driver import Go2WebRTCConnection
 from .constants import WebRTCConnectionMethod, SPORT_CMD, RTC_TOPIC, VUI_COLOR
-from .webrtc_audiohub import WebRTCAudioHub
 from .multicast_scanner import discover_ip_sn
 from .robot_helper import Go2RobotHelper, StateMonitor, RobotMode, create_example_main, simple_robot_connection
+
+# Lazy import for WebRTCAudioHub to avoid pydub import issues
+def _get_webrtc_audiohub():
+    """Lazy import for WebRTCAudioHub to avoid import errors"""
+    try:
+        from .webrtc_audiohub import WebRTCAudioHub
+        return WebRTCAudioHub
+    except ImportError as e:
+        raise ImportError(f"WebRTCAudioHub import failed: {e}. This may be due to missing audio dependencies.") from e
 
 __all__ = [
     'Go2WebRTCConnection',
@@ -57,3 +65,10 @@ __all__ = [
     'create_example_main',
     'simple_robot_connection',
 ]
+
+# Create a module-level attribute that will be imported lazily
+# This allows the package to be imported without triggering the audio dependencies
+def __getattr__(name):
+    if name == 'WebRTCAudioHub':
+        return _get_webrtc_audiohub()
+    raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
