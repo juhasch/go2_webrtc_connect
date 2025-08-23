@@ -2,7 +2,25 @@
 
 This repository contains a Python implementation of the WebRTC driver to connect to the Unitree Go2 Robot. WebRTC is used by the Unitree Go APP and provides high-level control through it. Therefore, no jailbreak or firmware manipulation is required. It works out of the box for Go2 AIR/PRO/EDU models.
 
-![Description of the image](./images/screenshot_1.png)
+
+```
+% export ROBOT_IP=192.168.0.197
+% python examples/data_channel/move_test.py
+🔌 Initializing robot connection...
+🔗 Connecting to robot...
+🕒 WebRTC connection        : 🟡 started       (16:43:29)
+Decoder set to: LibVoxelDecoder
+🕒 Signaling State          : 🟡 have-local-offer (16:43:29)
+🕒 ICE Gathering State      : 🟡 gathering     (16:43:29)
+🕒 ICE Gathering State      : 🟢 complete      (16:43:29)
+🕒 ICE Connection State     : 🔵 checking      (16:43:30)
+🕒 Peer Connection State    : 🔵 connecting    (16:43:30)
+🕒 Signaling State          : 🟢 stable        (16:43:30)
+🕒 ICE Connection State     : 🟢 completed     (16:43:30)
+🕒 Peer Connection State    : 🟢 connected     (16:43:30)
+🕒 Data Channel Verification: ✅ OK            (16:43:30)
+✅ Connected to robot successfully!
+```
 
 ## Supported Versions
 
@@ -104,11 +122,33 @@ pip install ".[examples]"
 pip install ".[docs]"
 
 # All optional dependencies
-pip install ".[dev,docs,examples]"
+pip install ".[dev,docs,examples,apps]"
 ```
+
+### Audio Dependencies
+
+For audio functionality (WebRTCAudioHub), additional dependencies are required:
+
+```sh
+# Install audio processing libraries
+pip install soundfile numpy scipy
+
+# System dependencies (Ubuntu/Debian)
+sudo apt-get install libsndfile1-dev
+
+# macOS (using Homebrew)
+brew install libsndfile
+
+# Windows (using conda)
+conda install libsndfile
+```
+
+**Note**: The `pydub` dependency has been replaced with `soundfile` for better Python 3.13 compatibility. Audio files are automatically converted from MP3 to WAV format when needed.
 
 ## Usage 
 Example programs are located in the /example directory.
+
+See [troubleshooting](troubleshooting.md) when you have problems connecting to the robot.
 
 ### Thanks
 

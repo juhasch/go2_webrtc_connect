@@ -15,18 +15,13 @@ def display_data(message):
         message: Odometry data containing position, orientation, and velocity information
     """
     try:
-        # Extract odometry data (structure may vary, adapting based on common robot odometry fields)
-        timestamp = message.get('stamp', {})
-        position = message.get('position', {})
-        orientation = message.get('orientation', {})
-        linear_velocity = message.get('linear_velocity', {})
-        angular_velocity = message.get('angular_velocity', {})
+        print(message)
+        header = message.get('header', {})
+        timestamp = header.get('stamp', {})
         
         # Alternative field names (adapt based on actual message structure)
-        if not position:
-            position = message.get('pose', {}).get('position', {})
-        if not orientation:
-            orientation = message.get('pose', {}).get('orientation', {})
+        position = message.get('pose', {}).get('position', {})
+        orientation = message.get('pose', {}).get('orientation', {})
 
         # Clear the entire screen and reset cursor position to top
         sys.stdout.write("\033[H\033[J")
@@ -34,8 +29,7 @@ def display_data(message):
         # Print robot odometry information
         print("Go2 Robot Odometry (ROBOTODOM)")
         print("==============================")
-        
-        # Timestamp information
+     
         if timestamp:
             if isinstance(timestamp, dict):
                 if 'sec' in timestamp and 'nanosec' in timestamp:
@@ -79,38 +73,7 @@ def display_data(message):
         else:
             print(f"  {orientation}")
 
-        # Linear velocity information
-        print("\nLinear Velocity:")
-        if isinstance(linear_velocity, dict):
-            vx = linear_velocity.get('x', 'N/A')
-            vy = linear_velocity.get('y', 'N/A')
-            vz = linear_velocity.get('z', 'N/A')
-            print(f"  VX: {vx:.6f} m/s" if isinstance(vx, (int, float)) else f"  VX: {vx}")
-            print(f"  VY: {vy:.6f} m/s" if isinstance(vy, (int, float)) else f"  VY: {vy}")
-            print(f"  VZ: {vz:.6f} m/s" if isinstance(vz, (int, float)) else f"  VZ: {vz}")
-        else:
-            print(f"  {linear_velocity}")
-
-        # Angular velocity information
-        print("\nAngular Velocity:")
-        if isinstance(angular_velocity, dict):
-            wx = angular_velocity.get('x', 'N/A')
-            wy = angular_velocity.get('y', 'N/A')
-            wz = angular_velocity.get('z', 'N/A')
-            print(f"  WX: {wx:.6f} rad/s" if isinstance(wx, (int, float)) else f"  WX: {wx}")
-            print(f"  WY: {wy:.6f} rad/s" if isinstance(wy, (int, float)) else f"  WY: {wy}")
-            print(f"  WZ: {wz:.6f} rad/s" if isinstance(wz, (int, float)) else f"  WZ: {wz}")
-        else:
-            print(f"  {angular_velocity}")
-
         print("==============================")
-        
-        # Print raw message for debugging (optional)
-        # Uncomment the following lines if you want to see the raw message structure
-        # print("\nRaw Message (for debugging):")
-        # print(message)
-        
-        # Optionally, flush to ensure immediate output
         sys.stdout.flush()
 
     except Exception as e:

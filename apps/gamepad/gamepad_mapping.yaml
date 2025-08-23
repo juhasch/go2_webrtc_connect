@@ -22,16 +22,16 @@ movement:
       scale: -0.8   # typical controllers: up is -1; invert to make up = forward
       deadzone: 0.12
       invert: false
-    # Left/Right stick horizontal can control sidestep y or yaw z; choose one
+    # Right stick horizontal controls sidestep y
     - target: y
-      index: 0
-      scale: 0.5
+      index: 2
+      scale: -0.5
       deadzone: 0.12
       invert: false
-    # Right stick horizontal controls yaw z (rotate)
+    # Left stick horizontal controls yaw z (rotate)
     - target: z
-      index: 2
-      scale: 0.8
+      index: 0
+      scale: -0.8
       deadzone: 0.12
       invert: false
 

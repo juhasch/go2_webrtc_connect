@@ -6,9 +6,6 @@ import sys
 from typing import Dict, Tuple
 
 import os
-import time
-import random
-import json
 import pygame
 import yaml
 
@@ -130,7 +127,6 @@ async def run_controller(cfg: GamepadConfig, debug: bool = False) -> None:
         limiter = RateLimiter(cfg.movement.send_interval_s)
         last_move: Tuple[float, float, float] = (0.0, 0.0, 0.0)
         idle_sent = True
-        last_avoid_keepalive = 0.0
 
         try:
             running = True
