@@ -410,6 +410,7 @@ async function connectWebRTC() {
   lidar.onmessage = (mev) => {
     updateLidarPoints(mev.data);
     try { debugState.lidarPoints = Math.floor(new Float32Array(mev.data).length / 3); } catch {};
+    try { console.log('[LiDAR] recv', mev.data.byteLength, 'bytes, points=', debugState.lidarPoints); } catch {}
     updateDebug();
   };
   lidar.onclose = () => { console.log('[DC] lidar close'); debugState.lidarDC = 'closed'; updateDebug(); };

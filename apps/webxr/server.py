@@ -45,6 +45,9 @@ class RobotVRServer:
         self.move_interval_s: float = 0.05  # 20 Hz
         self.obstacle_enabled: bool = False
         self.fast_move: bool = os.getenv("WEBXR_FAST_MOVE", "1") != "0"
+        # LiDAR RX logging state
+        self._lidar_rx_count: int = 0
+        self._lidar_last_log_ts: float = 0.0
 
         # Robot state cache (for assistant context)
         self.latest_state: Dict[str, Any] | None = None
@@ -116,23 +119,30 @@ class RobotVRServer:
             logger.warning("Failed to set decoder %s, falling back to native", decoder_type)
             conn.datachannel.set_decoder(decoder_type="native")
         conn.datachannel.pub_sub.publish_without_callback("rt/utlidar/switch", "on")
+        logger.info("LiDAR switch:on published; subscribing to voxel topics")
 
         def lidar_subscriber(message: Dict[str, Any]):
             # Offload to event loop task (non-blocking)
             try:
+                now = time.time()
                 sz = 0
                 d = message.get('data', {}).get('data')
                 if isinstance(d, dict):
-                    if 'points' in d and hasattr(d['points'], '__len__'):
+                    if 'points' in d:
+                        pts = d['points']
                         try:
-                            sz = len(d['points'])
+                            sz = len(pts() if callable(pts) else pts)
                         except Exception:
                             sz = 0
                     elif 'positions' in d and hasattr(d['positions'], '__len__'):
                         sz = len(d['positions']) // 3
-                logger.debug(f"lidar rx message, est points={sz}")
+                self._lidar_rx_count += 1
+                # Log first few and then rate every ~2s
+                if self._lidar_rx_count <= 5 or (now - self._lidar_last_log_ts) >= 2.0:
+                    logger.info("LiDAR RX: frame #%d, est_points=%d", self._lidar_rx_count, sz)
+                    self._lidar_last_log_ts = now
             except Exception:
-                pass
+                logger.info("LiDAR RX: error parsing message")
             asyncio.create_task(self._handle_lidar_msg(message))
 
         conn.datachannel.pub_sub.subscribe("rt/utlidar/voxel_map_compressed", lidar_subscriber)
@@ -208,7 +218,9 @@ class RobotVRServer:
 
             self.last_lidar_sent_ts = now
             if sent_count:
-                logger.debug(f"sent lidar frame: {len(flat)//3} points to {sent_count} clients, {len(buf)} bytes")
+                logger.info("LiDAR TX: %d points to %d clients, %d bytes", len(flat)//3, sent_count, len(buf))
+            else:
+                logger.info("LiDAR TX: no open clients; dropping frame (%d points)", len(flat)//3)
         except Exception as e:
             logger.debug(f"LiDAR processing error: {e}")
 
