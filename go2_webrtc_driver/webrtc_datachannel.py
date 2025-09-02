@@ -33,6 +33,7 @@ Example:
 """
 
 import asyncio
+import os
 import json
 import logging
 import struct
@@ -195,7 +196,7 @@ class WebRTCDataChannel:
         else:
             logging.debug(f"Unhandled message type: {msg_type}")
 
-    async def wait_datachannel_open(self, timeout: int = 5) -> None:
+    async def wait_datachannel_open(self, timeout: int | float | None = None) -> None:
         """
         Wait for the data channel to open with a timeout.
         
@@ -203,12 +204,18 @@ class WebRTCDataChannel:
         the timeout is reached.
         
         Args:
-            timeout: Maximum time to wait in seconds
+            timeout: Maximum time to wait in seconds. If None, uses
+                     env GO2_DCH_TIMEOUT_S or defaults to 10 seconds.
             
         Raises:
             asyncio.TimeoutError: If the channel doesn't open within the timeout
             SystemExit: If the timeout is reached (for backward compatibility)
         """
+        if timeout is None:
+            try:
+                timeout = float(os.getenv("GO2_DCH_TIMEOUT_S", "10"))
+            except Exception:
+                timeout = 10.0
         try:
             await asyncio.wait_for(self._wait_for_open(), timeout)
             logging.debug("Data channel opened successfully")

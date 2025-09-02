@@ -69,7 +69,14 @@ class RobotVRServer:
             detailed_state_display=False,
             logging_level=logging.ERROR,
         )
-        await self.robot.__aenter__()
+        try:
+            # Allow slower robots: override with env GO2_DCH_TIMEOUT_S, default 10s
+            await self.robot.__aenter__()
+        except SystemExit:
+            logger.error("Robot connection failed (data channel not ready). Serving UI without robot. "
+                         "Check ROBOT_IP and network, and try GO2_DCH_TIMEOUT_S=15")
+            self.robot = None
+            return
 
         # Prepare programmatic control (same semantics as gamepad controller)
         await self.robot.prepare_programmatic_control()
