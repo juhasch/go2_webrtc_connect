@@ -10,6 +10,7 @@ from typing import Any, Dict, List, Optional
 
 
 from go2_webrtc_driver import Go2RobotHelper
+from go2_webrtc_driver.constants import RTC_TOPIC, MCF_CMD, SPORT_CMD, DATA_CHANNEL_TYPE
 from go2_webrtc_driver.constants import WebRTCConnectionMethod
 from go2_webrtc_driver.cli_go2action import SUPPORTED_ACTIONS
 
@@ -43,6 +44,7 @@ class RobotVRServer:
         self.last_move_ts: float = 0.0
         self.move_interval_s: float = 0.05  # 20 Hz
         self.obstacle_enabled: bool = False
+        self.fast_move: bool = os.getenv("WEBXR_FAST_MOVE", "1") != "0"
 
         # Robot state cache (for assistant context)
         self.latest_state: Dict[str, Any] | None = None
@@ -393,8 +395,22 @@ class RobotVRServer:
             if self.obstacle_enabled:
                 await self.robot.avoid_move(x, y, yaw, 0)
             else:
-                # sport_move expects z=yaw
-                await self.robot.sport_move(x, y, yaw)
+                if self.fast_move and getattr(self.robot, 'conn', None):
+                    # Low-noise publish (avoids print spam from execute_command)
+                    try:
+                        req_id = int(asyncio.get_event_loop().time() * 1000) % 2147483648
+                        api_id = MCF_CMD.get("Move") or SPORT_CMD["Move"]
+                        payload = {
+                            "header": {"identity": {"id": req_id, "api_id": api_id}},
+                            "parameter": json.dumps({"x": x, "y": y, "z": yaw}),
+                        }
+                        self.robot.conn.datachannel.pub_sub.publish_without_callback(  # type: ignore
+                            RTC_TOPIC["SPORT_MOD"], payload, DATA_CHANNEL_TYPE["REQUEST"]
+                        )
+                    except Exception:
+                        await self.robot.sport_move(x, y, yaw)
+                else:
+                    await self.robot.sport_move(x, y, yaw)
         except Exception as e:
             logger.debug(f"move failed: {e}")
 

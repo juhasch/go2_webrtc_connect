@@ -21,7 +21,7 @@ const tempMatrix = new THREE.Matrix4();
 
 // Movement throttle
 let lastMoveSent = 0;
-const moveIntervalMs = 50; // 20 Hz
+const moveIntervalMs = 80; // ~12.5 Hz to reduce spam
 const deadzone = 0.08;
 
 function dz(v) { return Math.abs(v) < deadzone ? 0 : v; }
@@ -241,15 +241,27 @@ function sendMoveIfNeeded() {
   let y = dz(ls.x);
   let yaw = dz(rs.x);
 
-  // Clamp small noise; optionally scale if desired
-  if (Math.abs(x) + Math.abs(y) + Math.abs(yaw) < 0.001) {
-    // Still send occasionally to keep motion updated
-  }
+  // Only send if significant change or a periodic keepalive
+  const prev = sendMoveIfNeeded._prev || { x: 0, y: 0, yaw: 0 };
+  const eps = 0.02;
+  const changed = (Math.abs(x - prev.x) > eps) || (Math.abs(y - prev.y) > eps) || (Math.abs(yaw - prev.yaw) > eps);
+  const mag = Math.abs(x) + Math.abs(y) + Math.abs(yaw);
 
-  controlChannel.send(JSON.stringify({ type: 'move', x, y, yaw }));
-  lastMoveSent = now;
-  debugState.move = { x, y, yaw };
-  updateDebug();
+  // Keepalive (even if unchanged) every ~1.2s
+  const keepalive = (!sendMoveIfNeeded._lastKA || (now - sendMoveIfNeeded._lastKA) > 1200);
+
+  // If we just crossed near-zero, send a zero once
+  const wasMoving = (Math.abs(prev.x) + Math.abs(prev.y) + Math.abs(prev.yaw)) > 1e-3;
+  const nowStopped = mag < 1e-3 && wasMoving;
+
+  if (changed || keepalive || nowStopped) {
+    controlChannel.send(JSON.stringify({ type: 'move', x, y, yaw }));
+    lastMoveSent = now;
+    sendMoveIfNeeded._prev = { x, y, yaw };
+    if (keepalive) sendMoveIfNeeded._lastKA = now;
+    debugState.move = { x, y, yaw };
+    updateDebug();
+  }
 }
 
 function ensureLidarScene() {
