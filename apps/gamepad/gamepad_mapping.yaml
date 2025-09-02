@@ -1,0 +1,85 @@
+# Gamepad mapping for Go2 controller
+# - Axes are continuous movement controls
+# - Buttons and Hat map to discrete actions
+
+connection:
+  method: sta   # ap | sta | remote
+  ip: null      # set for STA mode if needed, e.g., 192.168.12.1
+  serial: null  # for remote
+  username: null
+  password: null
+
+movement:
+  send_interval_s: 0.15
+  send_stop_on_idle: true
+  max_x: 0.8
+  max_y: 0.5
+  max_z: 0.8
+  axes:
+    # Left stick vertical controls forward/back on x
+    - target: x
+      index: 1
+      scale: -0.8   # typical controllers: up is -1; invert to make up = forward
+      deadzone: 0.12
+      invert: false
+    # Right stick horizontal controls sidestep y
+    - target: y
+      index: 2
+      scale: -0.5
+      deadzone: 0.12
+      invert: false
+    # Left stick horizontal controls yaw z (rotate)
+    - target: z
+      index: 0
+      scale: -0.8
+      deadzone: 0.12
+      invert: false
+
+actions:
+  buttons:
+    # Examples; adjust indices to your controller
+    - index: 0
+      name: Hello
+      wait_time: 1.5
+    - index: 1
+      name: FingerHeart
+      wait_time: 2.0
+    - index: 2
+      name: Sit
+      wait_time: 2.0
+    - index: 3
+      name: StandUp
+      wait_time: 1.5
+    - index: 4
+      name: StandDown
+      wait_time: 1.5
+    - index: 5
+      name: StopMove
+      wait_time: 0.2
+  hat:
+    up:
+      index: 0
+      name: Move
+      parameter: {x: 0.3, y: 0.0, z: 0.0}
+      wait_time: 0.8
+    down:
+      index: 0
+      name: Move
+      parameter: {x: -0.3, y: 0.0, z: 0.0}
+      wait_time: 0.8
+    left:
+      index: 0
+      name: Move
+      parameter: {x: 0.0, y: 0.3, z: 0.0}
+      wait_time: 0.8
+    right:
+      index: 0
+      name: Move
+      parameter: {x: 0.0, y: -0.3, z: 0.0}
+      wait_time: 0.8
+
+obstacle:
+  enable_on_start: true
+  toggle_button_index: 6
+
+

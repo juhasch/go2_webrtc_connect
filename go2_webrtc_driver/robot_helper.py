@@ -40,11 +40,12 @@ import logging
 import json
 import sys
 from typing import Optional, Dict, Any, Callable, Union, List
-from contextlib import asynccontextmanager
 from enum import Enum
 
 from .webrtc_driver import Go2WebRTCConnection, WebRTCConnectionMethod
-from .constants import RTC_TOPIC, SPORT_CMD, MCF_CMD
+from .constants import RTC_TOPIC, SPORT_CMD, MCF_CMD, DATA_CHANNEL_TYPE
+
+logging.getLogger('aioice.ice').setLevel(logging.CRITICAL)
 
 
 class RobotMode(Enum):
@@ -84,7 +85,7 @@ class StateMonitor:
             return
         try:
             self.state_count += 1
-            timestamp = message.get('stamp', 'N/A')
+            # timestamp is available in message but not used for compact display
             mode = message.get('mode', 'N/A')
             progress = message.get('progress', 'N/A')
             gait_type = message.get('gait_type', 'N/A')
@@ -214,6 +215,13 @@ class Go2RobotHelper:
         self.current_mode: Optional[str] = None
         self.is_connected = False
         self.is_graceful_shutdown = False  # Flag to track graceful vs emergency shutdown
+        self._movement_prepared: bool = False  # Prepare joystick/speed once before first Move
+        self._obstacle_remote_enabled: bool = False
+        self._obstacle_keepalive_task: Optional[asyncio.Task] = None
+        # Track simple posture readiness for Move commands
+        self._is_standing: bool = True
+        # Require a BalanceStand before next Move after certain posture changes
+        self._needs_balance_stand: bool = False
         
         # Set up logging
         logging.basicConfig(level=logging_level)
@@ -288,6 +296,8 @@ class Go2RobotHelper:
         """Disconnect from the robot cleanly"""
         if self.conn and self.is_connected:
             try:
+                # Stop obstacle keepalive if running
+                await self.set_obstacle_remote_commands(False)
                 # Disable state monitoring first
                 self.state_monitor.disable_monitoring()
                 
@@ -408,6 +418,8 @@ class Go2RobotHelper:
             request_data = {"api_id": api_id}
             if parameter:
                 request_data["parameter"] = parameter
+
+            # Debug output specifically for movement optimization
                 
             response = await self.conn.datachannel.pub_sub.publish_request_new(
                 RTC_TOPIC["SPORT_MOD"], 
@@ -417,6 +429,31 @@ class Go2RobotHelper:
             if wait_time > 0:
                 await asyncio.sleep(wait_time)
                 
+            # For Move, surface concise response information to aid debugging
+            if command == "Move":
+                try:
+                    status = response.get("data", {}).get("header", {}).get("status", {})
+                    code = status.get("code")
+                    msg = status.get("msg") or status.get("message")
+                    if code not in (0, None):
+                        print(f"⚠️ Move response code={code}, msg={msg}")
+                except Exception:
+                    pass
+
+            # Update simple posture state based on command
+            try:
+                if command in ("StandUp", "BalanceStand", "RecoveryStand"):
+                    self._is_standing = True
+                elif command in ("StandDown", "Sit"):
+                    self._is_standing = False
+                # Mark that we need BalanceStand before next Move when posture changed
+                if command in ("StandDown", "Sit", "StandUp"):
+                    self._needs_balance_stand = True
+                elif command == "BalanceStand":
+                    self._needs_balance_stand = False
+            except Exception:
+                pass
+
             print(f"✅ Command {command} executed successfully")
             return response
             
@@ -512,30 +549,49 @@ class Go2RobotHelper:
         """
         print("📡 Checking obstacle detection status...")
         
+        # First try explicit SwitchGet RPC (api_id=1002)
+        try:
+            import json
+            response = await self.conn.datachannel.pub_sub.publish_request_new(
+                RTC_TOPIC['OBSTACLES_AVOID'],
+                {
+                    "api_id": 1002,  # SwitchGet
+                    "parameter": {}
+                }
+            )
+            if response and response.get('data', {}).get('header', {}).get('status', {}).get('code') == 0:
+                payload = response.get('data', {}).get('data')
+                data = json.loads(payload) if isinstance(payload, str) else (payload or {})
+                current_status = bool(data.get('enable', False))
+                status_text = "🟢 ENABLED" if current_status else "🔴 DISABLED"
+                print(f"📊 Obstacle detection status: {status_text}")
+                return current_status
+        except Exception as e:
+            # Fallback to subscription method below
+            self.logger.debug(f"SwitchGet status query failed, falling back to MULTIPLE_STATE: {e}")
+
+        # Fallback: subscribe to MULTIPLE_STATE and read obstaclesAvoidSwitch
         try:
             import json
             status_received = False
             current_status = None
-            
+
             def multiplestate_callback(message):
                 nonlocal status_received, current_status
                 try:
-                    # Parse the message data
                     data = json.loads(message['data']) if isinstance(message['data'], str) else message['data']
                     current_status = data.get('obstaclesAvoidSwitch', False)
                     status_received = True
                 except Exception as e:
                     self.logger.error(f"Error parsing multiplestate data: {e}")
-            
-            # Subscribe to multiple state topic to get current status
+
             self.conn.datachannel.pub_sub.subscribe(RTC_TOPIC['MULTIPLE_STATE'], multiplestate_callback)
-            
-            # Wait for status data (timeout after 5 seconds)
+
             wait_time = 0
             while not status_received and wait_time < 5.0:
                 await asyncio.sleep(0.1)
                 wait_time += 0.1
-                
+
             if status_received:
                 status_text = "🟢 ENABLED" if current_status else "🔴 DISABLED"
                 print(f"📊 Obstacle detection status: {status_text}")
@@ -543,7 +599,7 @@ class Go2RobotHelper:
             else:
                 print("⏱️ Status query timeout - no multiplestate data received")
                 return None
-                
+
         except Exception as e:
             self.logger.error(f"Error getting obstacle detection status: {e}")
             print(f"❌ Failed to query obstacle detection status: {e}")
@@ -564,8 +620,8 @@ class Go2RobotHelper:
         print(f"{emoji} {action_text} obstacle detection...")
         
         try:
-            # Send enable/disable command
-            api_id = 1001 if enable else 1002  # 1001 for enable, 1002 for disable
+            # Send enable/disable command via SwitchSet (api_id=1001)
+            api_id = 1001
             response = await self.conn.datachannel.pub_sub.publish_request_new(
                 RTC_TOPIC['OBSTACLES_AVOID'], 
                 {
@@ -591,6 +647,164 @@ class Go2RobotHelper:
             failure_text = "enabling" if enable else "disabling"
             self.logger.error(f"Error {failure_text} obstacle detection: {e}")
             print(f"❌ Error {failure_text} obstacle detection: {e}")
+            return False
+
+    # ===== High-level control helpers for apps =====
+    def _connection_ready(self) -> bool:
+        try:
+            if not self.conn or not self.conn.isConnected:
+                return False
+            dc = getattr(self.conn, "datachannel", None)
+            return bool(dc and dc.is_open())
+        except Exception:
+            return False
+
+    async def _ensure_connection(self) -> None:
+        if not self._connection_ready() and self.conn:
+            try:
+                await self.conn.reconnect()
+            except Exception as e:
+                self.logger.debug(f"Reconnect failed: {e}")
+
+    async def prepare_programmatic_control(self) -> None:
+        """Disable joystick/free-walk, set speed level, and stop motion."""
+        # Best-effort: disable joystick control
+        for payload in ({"data": False}, {"enable": False}):
+            try:
+                await self.execute_command("SwitchJoystick", payload, wait_time=0.1)
+                break
+            except Exception:
+                continue
+
+        # Best-effort: disable free-walk/lead-follow modes
+        for payload in ({"data": False}, {"enable": False}):
+            try:
+                await self.execute_command("FreeWalk", payload, wait_time=0.1)
+                break
+            except Exception:
+                continue
+
+        # Best-effort: set speed level
+        for payload in ({"level": 3}, {"data": 3}):
+            try:
+                await self.execute_command("SpeedLevel", payload, wait_time=0.1)
+                break
+            except Exception:
+                continue
+
+        # Ensure motion is stopped before starting
+        try:
+            await self.execute_command("StopMove", wait_time=0.1)
+        except Exception:
+            pass
+
+    async def set_obstacle_remote_commands(self, enable: bool) -> bool:
+        """Enable/disable remote API control for obstacle avoidance (api_id=1004)."""
+        await self._ensure_connection()
+        try:
+            response = await self.conn.datachannel.pub_sub.publish_request_new(  # type: ignore[union-attr]
+                RTC_TOPIC['OBSTACLES_AVOID'],
+                {
+                    "api_id": 1004,
+                    "parameter": {"is_remote_commands_from_api": enable},
+                },
+            )
+            ok = bool(response)
+            if ok and enable:
+                self._obstacle_remote_enabled = True
+                self._start_obstacle_keepalive()
+            else:
+                self._obstacle_remote_enabled = False
+                await self._stop_obstacle_keepalive()
+            return ok
+        except Exception as e:
+            self.logger.debug(f"Set remote obstacle control failed: {e}")
+            return False
+
+    def _start_obstacle_keepalive(self) -> None:
+        if self._obstacle_keepalive_task and not self._obstacle_keepalive_task.done():
+            return
+
+        async def _runner():
+            try:
+                while self._obstacle_remote_enabled:
+                    try:
+                        await self.conn.datachannel.pub_sub.publish_request_new(  # type: ignore[union-attr]
+                            RTC_TOPIC['OBSTACLES_AVOID'],
+                            {
+                                "api_id": 1004,
+                                "parameter": {"is_remote_commands_from_api": True},
+                            },
+                        )
+                    except Exception:
+                        pass
+                    await asyncio.sleep(3.0)
+            except asyncio.CancelledError:
+                return
+
+        self._obstacle_keepalive_task = asyncio.create_task(_runner())
+
+    async def _stop_obstacle_keepalive(self) -> None:
+        if self._obstacle_keepalive_task and not self._obstacle_keepalive_task.done():
+            self._obstacle_keepalive_task.cancel()
+            try:
+                await self._obstacle_keepalive_task
+            except Exception:
+                pass
+        self._obstacle_keepalive_task = None
+
+    async def avoid_move(self, x: float, y: float, yaw: float, mode: int = 0) -> bool:
+        """Send obstacle-aware velocity (api_id=1003)."""
+        await self._ensure_connection()
+        try:
+            payload = {"api_id": 1003, "parameter": {"x": x, "y": y, "yaw": yaw, "mode": mode}}
+            await self.conn.datachannel.pub_sub.publish_request_new(  # type: ignore[union-attr]
+                RTC_TOPIC['OBSTACLES_AVOID'], payload
+            )
+            return True
+        except Exception:
+            # Fallback: fire-and-forget
+            try:
+                req_id = int(asyncio.get_event_loop().time() * 1000) % 2147483648
+                self.conn.datachannel.pub_sub.publish_without_callback(  # type: ignore[union-attr]
+                    RTC_TOPIC['OBSTACLES_AVOID'],
+                    {
+                        "header": {"identity": {"id": req_id, "api_id": 1003}},
+                        "parameter": json.dumps({"x": x, "y": y, "yaw": yaw, "mode": mode}),
+                    },
+                    DATA_CHANNEL_TYPE["REQUEST"],
+                )
+                return True
+            except Exception:
+                return False
+
+    async def sport_move(self, x: float, y: float, z: float) -> bool:
+        try:
+            # Ensure locomotion is enabled (BalanceStand) after StandDown/Sit/StandUp
+            if self._needs_balance_stand:
+                try:
+                    await self.execute_command("BalanceStand", wait_time=0.3)
+                except Exception:
+                    pass
+                self._needs_balance_stand = False
+            
+            await self.execute_command("Move", {"x": x, "y": y, "z": z}, wait_time=0.0)
+            return True
+        except Exception:
+            return False
+
+    async def move(self, x: float, y: float, z: float, obstacle_avoidance: bool = False) -> bool:
+        if obstacle_avoidance:
+            return await self.avoid_move(x, y, z, 0)
+        return await self.sport_move(x, y, z)
+
+    async def stop(self, obstacle_avoidance: bool = False) -> bool:
+        if obstacle_avoidance:
+            return await self.avoid_move(0.0, 0.0, 0.0, 0)
+        try:
+            await self.execute_command("StopMove", wait_time=0.0)
+            return True
+        except Exception:
             return False
             
     async def emergency_cleanup(self) -> None:

@@ -399,6 +399,8 @@ class WebRTCAudioHub:
         )
         return response
 
+    
+
     async def upload_audio_file(self, audiofile_path: str) -> Dict[str, Any]:
         """
         Upload an audio file to the robot
@@ -439,8 +441,7 @@ class WebRTCAudioHub:
         if audiofile_path.endswith(".mp3"):
             self.logger.debug("Converting MP3 to WAV")
             audio = AudioSegment.from_mp3(audiofile_path)
-            # Set specific audio parameters for compatibility
-            audio = audio.set_frame_rate(44100)  # Standard sample rate
+            audio = audio.set_frame_rate(44100)
             wav_file_path = audiofile_path.replace('.mp3', '.wav')
             audio.export(wav_file_path, format='wav', parameters=["-ar", "44100"])
         else:
@@ -599,8 +600,7 @@ class WebRTCAudioHub:
         if audiofile_path.endswith(".mp3"):
             self.logger.debug("Converting MP3 to WAV")
             audio = AudioSegment.from_mp3(audiofile_path)
-            # Set specific audio parameters for compatibility
-            audio = audio.set_frame_rate(44100)  # Standard sample rate
+            audio = audio.set_frame_rate(44100)
             wav_file_path = audiofile_path.replace('.mp3', '.wav')
             audio.export(wav_file_path, format='wav', parameters=["-ar", "44100"])
         else:
