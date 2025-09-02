@@ -106,7 +106,7 @@ class RobotVRServer:
 
         # LiDAR: request stream and subscribe
         await conn.datachannel.disableTrafficSaving(True)
-        decoder_type = os.getenv("GO2_LIDAR_DECODER", "native")
+        decoder_type = os.getenv("GO2_LIDAR_DECODER", "libvoxel")
         try:
             conn.datachannel.set_decoder(decoder_type=decoder_type)
             logger.info("LiDAR decoder set to %s", decoder_type)
@@ -117,12 +117,28 @@ class RobotVRServer:
 
         def lidar_subscriber(message: Dict[str, Any]):
             # Offload to event loop task (non-blocking)
+            try:
+                sz = 0
+                d = message.get('data', {}).get('data')
+                if isinstance(d, dict):
+                    if 'points' in d and hasattr(d['points'], '__len__'):
+                        try:
+                            sz = len(d['points'])
+                        except Exception:
+                            sz = 0
+                    elif 'positions' in d and hasattr(d['positions'], '__len__'):
+                        sz = len(d['positions']) // 3
+                logger.debug(f"lidar rx message, est points={sz}")
+            except Exception:
+                pass
             asyncio.create_task(self._handle_lidar_msg(message))
 
-        conn.datachannel.pub_sub.subscribe(
-            "rt/utlidar/voxel_map_compressed",
-            lidar_subscriber,
-        )
+        conn.datachannel.pub_sub.subscribe("rt/utlidar/voxel_map_compressed", lidar_subscriber)
+        # Fallback subscribe to non-compressed topic as well
+        try:
+            conn.datachannel.pub_sub.subscribe("rt/utlidar/voxel_map", lidar_subscriber)
+        except Exception:
+            pass
 
         # Subscribe to state for lightweight status answers
         try:
@@ -330,12 +346,21 @@ class RobotVRServer:
                 yaw = float(data.get("yaw", 0.0))
                 logger.debug(f"recv move: x={x:.3f} y={y:.3f} yaw={yaw:.3f}")
                 asyncio.create_task(self._handle_move(x, y, yaw))
+                # Debug ACK
+                try:
+                    dc.send(json.dumps({"type": "ack_move", "x": x, "y": y, "yaw": yaw, "ts": time.time()}))
+                except Exception:
+                    pass
             elif t == "action":
                 # {type: "action", name: "StandUp"}
                 name = data.get("name")
                 if isinstance(name, str):
                     logger.info(f"recv action: {name}")
                     asyncio.create_task(self._handle_action(name))
+                    try:
+                        dc.send(json.dumps({"type": "ack_action", "name": name, "ts": time.time()}))
+                    except Exception:
+                        pass
             elif t == "toggle_obstacle":
                 logger.info("recv toggle_obstacle")
                 asyncio.create_task(self._handle_toggle_obstacle())

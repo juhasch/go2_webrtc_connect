@@ -12,6 +12,7 @@ let pointerRight = null;
 
 let videoEl = null;
 let videoMesh = null;
+let videoTexture = null;
 
 let actions = [];
 let actionButtons = [];
@@ -280,6 +281,19 @@ function updateLidarPoints(buffer) {
 
 function onXRFrame() {
   sendMoveIfNeeded();
+  if (videoTexture) videoTexture.needsUpdate = true;
+  try {
+    // Keep the screen in front of user; useful for debugging visibility
+    const pos = new THREE.Vector3();
+    camera.getWorldPosition(pos);
+    const dir = new THREE.Vector3();
+    camera.getWorldDirection(dir);
+    const target = pos.clone().add(dir.multiplyScalar(2.2));
+    if (videoMesh) {
+      videoMesh.position.copy(target);
+      videoMesh.lookAt(pos);
+    }
+  } catch (e) {}
   renderer.render(scene, camera);
 }
 
@@ -305,6 +319,10 @@ async function connectWebRTC() {
         updateRealtimeTools();
       } else if (msg.type === 'ping') {
         // round-trip sanity
+      } else if (msg.type === 'ack_move') {
+        console.log('[ACK] move', msg);
+      } else if (msg.type === 'ack_action') {
+        console.log('[ACK] action', msg);
       }
     } catch (e) {}
   };
@@ -322,6 +340,8 @@ async function connectWebRTC() {
   lidar.onclose = () => { console.log('[DC] lidar close'); debugState.lidarDC = 'closed'; updateDebug(); };
 
   pc.ontrack = (ev) => {
+    console.log('[RTC] ontrack kind=', ev.track?.kind, 'streams=', ev.streams?.length);
+    debugState.video = 'receiving'; updateDebug();
     if (!videoEl) {
       videoEl = document.createElement('video');
       videoEl.autoplay = true;
@@ -332,11 +352,11 @@ async function connectWebRTC() {
     }
     videoEl.srcObject = ev.streams[0];
     // Create texture and assign to screen
-    const tex = new THREE.VideoTexture(videoEl);
-    tex.minFilter = THREE.LinearFilter;
-    tex.magFilter = THREE.LinearFilter;
+    videoTexture = new THREE.VideoTexture(videoEl);
+    videoTexture.minFilter = THREE.LinearFilter;
+    videoTexture.magFilter = THREE.LinearFilter;
     // tex.format no longer needed
-    videoMesh.material.map = tex;
+    videoMesh.material.map = videoTexture;
     videoMesh.material.needsUpdate = true;
   };
 
