@@ -292,6 +292,35 @@ async function connectWebRTC() {
   // Ensure the offer contains a video m-line we can answer with a recv track
   try { pc.addTransceiver('video', { direction: 'recvonly' }); } catch {}
 
+  // Create data channels from the offerer side (browser)
+  const ctrl = pc.createDataChannel('control');
+  controlChannel = ctrl;
+  ctrl.onopen = () => { console.log('[DC] control open (offerer)'); debugState.controlDC = 'open'; updateDebug(); };
+  ctrl.onmessage = (mev) => {
+    try {
+      const msg = JSON.parse(mev.data);
+      if (msg.type === 'actions') {
+        actions = msg.actions || [];
+        layoutActionButtons();
+        updateRealtimeTools();
+      } else if (msg.type === 'ping') {
+        // round-trip sanity
+      }
+    } catch (e) {}
+  };
+  ctrl.onclose = () => { console.log('[DC] control close'); debugState.controlDC = 'closed'; updateDebug(); };
+
+  const lidar = pc.createDataChannel('lidar');
+  lidarChannel = lidar;
+  lidar.binaryType = 'arraybuffer';
+  lidar.onopen = () => { console.log('[DC] lidar open (offerer)'); debugState.lidarDC = 'open'; updateDebug(); };
+  lidar.onmessage = (mev) => {
+    updateLidarPoints(mev.data);
+    try { debugState.lidarPoints = Math.floor(new Float32Array(mev.data).length / 3); } catch {};
+    updateDebug();
+  };
+  lidar.onclose = () => { console.log('[DC] lidar close'); debugState.lidarDC = 'closed'; updateDebug(); };
+
   pc.ontrack = (ev) => {
     if (!videoEl) {
       videoEl = document.createElement('video');
@@ -311,32 +340,14 @@ async function connectWebRTC() {
     videoMesh.material.needsUpdate = true;
   };
 
+  // Keep a fallback in case the answerer also creates channels
   pc.ondatachannel = (ev) => {
     const ch = ev.channel;
-    if (ch.label === 'control') {
+    console.log('[DC] ondatachannel', ch.label);
+    if (ch.label === 'control' && !controlChannel) {
       controlChannel = ch;
-      ch.onopen = () => { console.log('[DC] control open'); debugState.controlDC = 'open'; updateDebug(); };
-      ch.onmessage = (mev) => {
-        try {
-          const msg = JSON.parse(mev.data);
-          if (msg.type === 'actions') {
-            actions = msg.actions || [];
-            layoutActionButtons();
-            updateRealtimeTools();
-          }
-        } catch (e) {}
-      };
-      ch.onclose = () => { console.log('[DC] control close'); debugState.controlDC = 'closed'; updateDebug(); };
-    } else if (ch.label === 'lidar') {
+    } else if (ch.label === 'lidar' && !lidarChannel) {
       lidarChannel = ch;
-      ch.binaryType = 'arraybuffer';
-      ch.onopen = () => { console.log('[DC] lidar open'); debugState.lidarDC = 'open'; updateDebug(); };
-      ch.onmessage = (mev) => {
-        updateLidarPoints(mev.data);
-        try { debugState.lidarPoints = Math.floor(new Float32Array(mev.data).length / 3); } catch {};
-        updateDebug();
-      };
-      ch.onclose = () => { console.log('[DC] lidar close'); debugState.lidarDC = 'closed'; updateDebug(); };
     }
   };
 

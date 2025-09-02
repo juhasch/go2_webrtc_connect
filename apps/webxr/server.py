@@ -106,7 +106,13 @@ class RobotVRServer:
 
         # LiDAR: request stream and subscribe
         await conn.datachannel.disableTrafficSaving(True)
-        conn.datachannel.set_decoder(decoder_type="native")
+        decoder_type = os.getenv("GO2_LIDAR_DECODER", "native")
+        try:
+            conn.datachannel.set_decoder(decoder_type=decoder_type)
+            logger.info("LiDAR decoder set to %s", decoder_type)
+        except Exception:
+            logger.warning("Failed to set decoder %s, falling back to native", decoder_type)
+            conn.datachannel.set_decoder(decoder_type="native")
         conn.datachannel.pub_sub.publish_without_callback("rt/utlidar/switch", "on")
 
         def lidar_subscriber(message: Dict[str, Any]):
@@ -200,12 +206,17 @@ class RobotVRServer:
         self.pcs.append(pc)
         logger.info("Created PC %s", id(pc))
 
-        # Create data channels from server-side
-        control_dc = pc.createDataChannel("control")
-        lidar_dc = pc.createDataChannel("lidar")
-
-        self._setup_control_channel(control_dc)
-        self._setup_lidar_channel(lidar_dc)
+        @pc.on("datachannel")
+        def on_datachannel(channel) -> None:
+            try:
+                label = getattr(channel, 'label', '')
+            except Exception:
+                label = ''
+            logger.info("peer %s datachannel '%s'", id(pc), label)
+            if label == 'control':
+                self._setup_control_channel(channel)
+            elif label == 'lidar':
+                self._setup_lidar_channel(channel)
 
         # Add relayed robot video track if available
         if self.robot_video_track is not None and self.video_relay is not None:
