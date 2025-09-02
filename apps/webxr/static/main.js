@@ -1,4 +1,6 @@
-// Basic Three.js + WebXR scene with WebRTC hookup
+// Basic Three.js + WebXR scene with WebRTC hookup (ESM)
+import * as THREE from 'https://unpkg.com/three@0.160.0/build/three.module.js';
+import { VRButton } from 'https://unpkg.com/three@0.160.0/examples/jsm/webxr/VRButton.js';
 
 let scene, camera, renderer;
 let leftController, rightController;
@@ -250,7 +252,7 @@ async function connectWebRTC() {
     const tex = new THREE.VideoTexture(videoEl);
     tex.minFilter = THREE.LinearFilter;
     tex.magFilter = THREE.LinearFilter;
-    tex.format = THREE.RGBFormat;
+    // tex.format no longer needed
     videoMesh.material.map = tex;
     videoMesh.material.needsUpdate = true;
   };
