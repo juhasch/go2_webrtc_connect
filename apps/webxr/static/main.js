@@ -25,6 +25,44 @@ const deadzone = 0.08;
 
 function dz(v) { return Math.abs(v) < deadzone ? 0 : v; }
 
+// Debug UI helpers
+let debugEl = null;
+const debugState = {
+  controlDC: 'closed',
+  lidarDC: 'closed',
+  video: 'idle',
+  videoDims: '',
+  lidarPoints: 0,
+  leftAxes: [],
+  rightAxes: [],
+  move: { x: 0, y: 0, yaw: 0 },
+};
+
+function initDebug() {
+  debugEl = document.getElementById('debug');
+  updateDebug();
+}
+
+function updateDebug() {
+  if (!debugEl) return;
+  const lines = [];
+  lines.push(`DC control: ${debugState.controlDC} | DC lidar: ${debugState.lidarDC}`);
+  lines.push(`Video: ${debugState.video} ${debugState.videoDims}`);
+  lines.push(`LiDAR points: ${debugState.lidarPoints}`);
+  const la = dbgFmtAxes(debugState.leftAxes);
+  const ra = dbgFmtAxes(debugState.rightAxes);
+  lines.push(`Left axes:  ${la}`);
+  lines.push(`Right axes: ${ra}`);
+  const m = debugState.move;
+  lines.push(`Move (x,y,yaw): ${m.x.toFixed(3)}, ${m.y.toFixed(3)}, ${m.yaw.toFixed(3)}`);
+  debugEl.textContent = lines.join('\n');
+}
+
+function dbgFmtAxes(a) {
+  if (!a || a.length === 0) return '[]';
+  return '[' + a.map(v => (Math.abs(v) < 0.001 ? ' 0.000' : (v>0?'+':'') + v.toFixed(3))).join(', ') + ']';
+}
+
 async function setupThree() {
   scene = new THREE.Scene();
   scene.background = new THREE.Color(0x000000);
@@ -81,6 +119,8 @@ async function setupThree() {
   // Wire voice assistant button
   const voiceBtn = document.getElementById('voiceBtn');
   if (voiceBtn) voiceBtn.addEventListener('click', toggleVoiceAssistant);
+
+  initDebug();
 }
 
 function onWindowResize() {
@@ -156,6 +196,7 @@ function onSelectStart() {
       return;
     }
     const label = target.userData.label;
+    console.log('[UI] action click', label);
     controlChannel.send(JSON.stringify({ type: 'action', name: label }));
     target.material.color = new THREE.Color(0x00aa00);
     setTimeout(() => target.material.color = new THREE.Color(0xffffff), 300);
@@ -174,6 +215,12 @@ function controllerStickXY(controller) {
     }
     if ((Math.abs(ax) + Math.abs(ay)) < 0.01 && gp.axes && gp.axes.length >= 4) {
       ax = gp.axes[2] ?? 0; ay = gp.axes[3] ?? 0;
+    }
+    // Update debug: show all raw axes
+    if (controller === leftController) {
+      debugState.leftAxes = gp.axes ? Array.from(gp.axes) : [];
+    } else if (controller === rightController) {
+      debugState.rightAxes = gp.axes ? Array.from(gp.axes) : [];
     }
     return { x: ax, y: ay };
   } catch (e) {
@@ -200,6 +247,8 @@ function sendMoveIfNeeded() {
 
   controlChannel.send(JSON.stringify({ type: 'move', x, y, yaw }));
   lastMoveSent = now;
+  debugState.move = { x, y, yaw };
+  updateDebug();
 }
 
 function ensureLidarScene() {
@@ -249,6 +298,8 @@ async function connectWebRTC() {
       videoEl.autoplay = true;
       videoEl.muted = true;
       videoEl.playsInline = true;
+      videoEl.addEventListener('playing', () => { debugState.video = 'playing'; updateDebug(); });
+      videoEl.addEventListener('loadedmetadata', () => { debugState.videoDims = `${videoEl.videoWidth}x${videoEl.videoHeight}`; updateDebug(); });
     }
     videoEl.srcObject = ev.streams[0];
     // Create texture and assign to screen
@@ -264,6 +315,7 @@ async function connectWebRTC() {
     const ch = ev.channel;
     if (ch.label === 'control') {
       controlChannel = ch;
+      ch.onopen = () => { console.log('[DC] control open'); debugState.controlDC = 'open'; updateDebug(); };
       ch.onmessage = (mev) => {
         try {
           const msg = JSON.parse(mev.data);
@@ -274,12 +326,17 @@ async function connectWebRTC() {
           }
         } catch (e) {}
       };
+      ch.onclose = () => { console.log('[DC] control close'); debugState.controlDC = 'closed'; updateDebug(); };
     } else if (ch.label === 'lidar') {
       lidarChannel = ch;
       ch.binaryType = 'arraybuffer';
+      ch.onopen = () => { console.log('[DC] lidar open'); debugState.lidarDC = 'open'; updateDebug(); };
       ch.onmessage = (mev) => {
         updateLidarPoints(mev.data);
+        try { debugState.lidarPoints = Math.floor(new Float32Array(mev.data).length / 3); } catch {};
+        updateDebug();
       };
+      ch.onclose = () => { console.log('[DC] lidar close'); debugState.lidarDC = 'closed'; updateDebug(); };
     }
   };
 

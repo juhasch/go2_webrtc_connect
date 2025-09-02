@@ -173,14 +173,18 @@ class RobotVRServer:
             buf = array.array("f", flat).tobytes()
 
             # Broadcast on lidar channels
+            sent_count = 0
             for ch in list(self.lidar_channels):
                 if ch.readyState == "open":
                     try:
                         ch.send(buf)
+                        sent_count += 1
                     except Exception:
                         pass
 
             self.last_lidar_sent_ts = now
+            if sent_count:
+                logger.debug(f"sent lidar frame: {len(flat)//3} points to {sent_count} clients, {len(buf)} bytes")
         except Exception as e:
             logger.debug(f"LiDAR processing error: {e}")
 
@@ -207,6 +211,7 @@ class RobotVRServer:
         if self.robot_video_track is not None and self.video_relay is not None:
             pc.addTrack(self.video_relay.subscribe(self.robot_video_track))
             setattr(pc, "_has_robot_video", True)
+            logger.info("attached robot video to peer %s", id(pc))
 
         @pc.on("iceconnectionstatechange")
         async def on_ice_state_change() -> None:
@@ -285,6 +290,11 @@ class RobotVRServer:
         def on_open() -> None:
             logger.info("control channel open")
             send_actions_list()
+            # Send a ping to mark connectivity
+            try:
+                dc.send(json.dumps({"type": "ping", "ts": time.time()}))
+            except Exception:
+                pass
 
         @dc.on("close")
         def on_close() -> None:
@@ -307,17 +317,24 @@ class RobotVRServer:
                 x = float(data.get("x", 0.0))
                 y = float(data.get("y", 0.0))
                 yaw = float(data.get("yaw", 0.0))
+                logger.debug(f"recv move: x={x:.3f} y={y:.3f} yaw={yaw:.3f}")
                 asyncio.create_task(self._handle_move(x, y, yaw))
             elif t == "action":
                 # {type: "action", name: "StandUp"}
                 name = data.get("name")
                 if isinstance(name, str):
+                    logger.info(f"recv action: {name}")
                     asyncio.create_task(self._handle_action(name))
             elif t == "toggle_obstacle":
+                logger.info("recv toggle_obstacle")
                 asyncio.create_task(self._handle_toggle_obstacle())
 
     def _setup_lidar_channel(self, dc) -> None:
         self.lidar_channels.append(dc)
+
+        @dc.on("open")
+        def on_open() -> None:
+            logger.info("lidar channel open (%d clients)", len(self.lidar_channels))
 
         @dc.on("close")
         def on_close() -> None:
