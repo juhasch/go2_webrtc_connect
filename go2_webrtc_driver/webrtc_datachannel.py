@@ -106,7 +106,7 @@ class WebRTCDataChannel:
         # Configure network status callback
         def on_network_status(mode: str) -> None:
             """Handle network status updates."""
-            print(f"Go2 connection mode: {mode}")
+            logging.debug(f"Go2 connection mode: {mode}")
 
         self.rtc_inner_req.network_status.set_on_network_status_callback(on_network_status)
 
@@ -346,7 +346,7 @@ class WebRTCDataChannel:
             )
             
             if response.get('info', {}).get('execution') == "ok":
-                print(f"Traffic saving: {'disabled' if switch else 'enabled'}")
+                logging.debug(f"Traffic saving: {'disabled' if switch else 'enabled'}")
                 return True
             else:
                 logging.error(f"Failed to change traffic saving mode: {response}")
@@ -367,7 +367,7 @@ class WebRTCDataChannel:
             "on" if switch else "off",
             DATA_CHANNEL_TYPE["VID"],
         )
-        print(f"Video channel: {'on' if switch else 'off'}")
+        logging.debug(f"Video channel: {'on' if switch else 'off'}")
 
     def switchAudioChannel(self, switch: bool) -> None:
         """
@@ -381,7 +381,7 @@ class WebRTCDataChannel:
             "on" if switch else "off",
             DATA_CHANNEL_TYPE["AUD"],
         )
-        print(f"Audio channel: {'on' if switch else 'off'}")
+        logging.debug(f"Audio channel: {'on' if switch else 'off'}")
     
     def set_decoder(self, decoder_type: str) -> None:
         """
@@ -406,7 +406,6 @@ class WebRTCDataChannel:
 
         # Create decoder instance
         self.decoder = UnifiedLidarDecoder(decoder_type=decoder_type)
-        print(f"Decoder set to: {self.decoder.get_decoder_name()}")
         logging.debug(f"Data decoder changed to: {decoder_type}")
     
     def is_open(self) -> bool:

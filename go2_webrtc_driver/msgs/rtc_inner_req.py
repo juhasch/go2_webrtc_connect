@@ -323,7 +323,7 @@ class WebRTCDataChannelNetworkStatus:
             )
             self.handle_response(response.get("info"))
         except Exception as e:
-            logging.error("Failed to publish:", e)
+            logging.error("Failed to publish network status request: %s", e)
         
     def handle_response(self, info: Dict[str, Any]) -> None:
         """
@@ -355,7 +355,7 @@ class WebRTCDataChannelNetworkStatus:
             - Triggers registered callbacks on stable connections
             - Stops monitoring when stable connection detected
         """
-        logging.info("Network status message received.")
+        logging.debug("Network status message received.")
         status = info.get("status")
         
         if status == "Undefined" or status == "NetworkStatus.DISCONNECTED":
@@ -516,7 +516,7 @@ class WebRTCDataChannelFileUploader:
         # Encode the data to Base64
         encoded_data = base64.b64encode(data).decode('utf-8')
         
-        print("Total size after Base64 encoding:", len(encoded_data))
+        logging.debug("Total size after Base64 encoding: %d", len(encoded_data))
         chunks = self.slice_base64_into_chunks(encoded_data, chunk_size)
         total_chunks = len(chunks)
         
@@ -524,7 +524,7 @@ class WebRTCDataChannelFileUploader:
         
         for i, chunk in enumerate(chunks):
             if self.cancel_upload:
-                print("Upload canceled.")
+                logging.debug("Upload canceled.")
                 return "cancel"
             
             # Rate limiting: sleep every 5 chunks to prevent overwhelming the channel

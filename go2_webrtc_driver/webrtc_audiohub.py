@@ -55,10 +55,9 @@ import logging
 import json
 import base64
 import time
-import uuid
 import os
 import hashlib
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional
 from pydub import AudioSegment
 from go2_webrtc_driver.constants import AUDIO_API
 from go2_webrtc_driver.webrtc_driver import Go2WebRTCConnection
@@ -438,7 +437,7 @@ class WebRTCAudioHub:
         """
         # Convert MP3 to WAV if necessary
         if audiofile_path.endswith(".mp3"):
-            self.logger.info("Converting MP3 to WAV")
+            self.logger.debug("Converting MP3 to WAV")
             audio = AudioSegment.from_mp3(audiofile_path)
             # Set specific audio parameters for compatibility
             audio = audio.set_frame_rate(44100)  # Standard sample rate
@@ -451,8 +450,7 @@ class WebRTCAudioHub:
         with open(wav_file_path, 'rb') as f:
             audio_data = f.read()
 
-        # Generate a unique ID for the audio file
-        unique_id = str(uuid.uuid4())
+        # Note: unique identifier for upload is handled by receiver side
         
         try:
             # Calculate MD5 of the file
@@ -466,7 +464,7 @@ class WebRTCAudioHub:
             chunks = [b64_data[i:i + chunk_size] for i in range(0, len(b64_data), chunk_size)]
             total_chunks = len(chunks)
             
-            self.logger.info(f"Splitting file into {total_chunks} chunks")
+            self.logger.debug(f"Splitting file into {total_chunks} chunks")
 
             # Send each chunk
             for i, chunk in enumerate(chunks, 1):
@@ -481,9 +479,13 @@ class WebRTCAudioHub:
                     'file_md5': file_md5,
                     'create_time': int(time.time() * 1000)
                 }
-                print(json.dumps(parameter, ensure_ascii=True))
                 # Send the chunk
-                self.logger.info(f"Sending chunk {i}/{total_chunks}")
+                self.logger.debug(f"Sending chunk {i}/{total_chunks}")
+                if i % 25 == 0 or i == total_chunks:
+                    # Periodic compact progress for large files
+                    self.logger.debug(
+                        f"Progress: {i}/{total_chunks} blocks sent for {parameter['file_name']} ({parameter['file_type']})"
+                    )
                 
                 response = await self.data_channel.pub_sub.publish_request_new(
                     "rt/api/audiohub/request",
@@ -496,7 +498,7 @@ class WebRTCAudioHub:
                 # Wait a small amount between chunks
                 await asyncio.sleep(0.1)
                 
-            self.logger.info("All chunks sent")
+            self.logger.debug("All chunks sent")
             return response
             
         except Exception as e:
@@ -595,7 +597,7 @@ class WebRTCAudioHub:
         """
         # Convert MP3 to WAV if necessary
         if audiofile_path.endswith(".mp3"):
-            self.logger.info("Converting MP3 to WAV")
+            self.logger.debug("Converting MP3 to WAV")
             audio = AudioSegment.from_mp3(audiofile_path)
             # Set specific audio parameters for compatibility
             audio = audio.set_frame_rate(44100)  # Standard sample rate
@@ -609,8 +611,7 @@ class WebRTCAudioHub:
             audio_data = f.read()
 
         try:
-            # Calculate MD5 of the file
-            file_md5 = hashlib.md5(audio_data).hexdigest()
+            # Megaphone upload does not require MD5 in current protocol
             
             # Convert to base64
             b64_data = base64.b64encode(audio_data).decode('utf-8')
@@ -620,7 +621,7 @@ class WebRTCAudioHub:
             chunks = [b64_data[i:i + chunk_size] for i in range(0, len(b64_data), chunk_size)]
             total_chunks = len(chunks)
             
-            self.logger.info(f"Splitting file into {total_chunks} chunks")
+            self.logger.debug(f"Splitting file into {total_chunks} chunks")
 
             # Send each chunk
             for i, chunk in enumerate(chunks, 1):
@@ -630,9 +631,13 @@ class WebRTCAudioHub:
                     'current_block_index': i,
                     'total_block_number': total_chunks
                 }
-                print(json.dumps(parameter, ensure_ascii=True))
                 # Send the chunk
-                self.logger.info(f"Sending chunk {i}/{total_chunks}")
+                self.logger.debug(f"Sending chunk {i}/{total_chunks}")
+                if i % 25 == 0 or i == total_chunks:
+                    # Periodic compact progress
+                    self.logger.debug(
+                        f"Megaphone upload progress: {i}/{total_chunks} blocks"
+                    )
                 
                 response = await self.data_channel.pub_sub.publish_request_new(
                     "rt/api/audiohub/request",
@@ -645,7 +650,7 @@ class WebRTCAudioHub:
                 # Wait a small amount between chunks
                 await asyncio.sleep(0.1)
                 
-            self.logger.info("All chunks sent")
+            self.logger.debug("All chunks sent")
             return response
         except Exception as e:
             self.logger.error(f"Error uploading audio file: {e}")
