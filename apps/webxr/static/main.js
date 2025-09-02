@@ -91,9 +91,11 @@ async function setupThree() {
 
   // Video screen placeholder (updated when stream arrives)
   const screenGeom = new THREE.PlaneGeometry(3.2, 1.8);
-  const screenMat = new THREE.MeshBasicMaterial({ color: 0x111111, side: THREE.DoubleSide });
+  const screenMat = new THREE.MeshBasicMaterial({ color: 0x111111, side: THREE.DoubleSide, transparent: true, opacity: 0.6 });
   videoMesh = new THREE.Mesh(screenGeom, screenMat);
   videoMesh.position.set(0, 1.2, -2.2);
+  videoMesh.renderOrder = 1;
+  videoMesh.material.depthWrite = false;
   scene.add(videoMesh);
 
   // Controllers
@@ -144,6 +146,7 @@ function ensureVideoMaterial() {
 function toggleVRDebug() {
   vrDebugEnabled = !vrDebugEnabled;
   debugState.vrdbg = vrDebugEnabled;
+  try { const btn = document.getElementById('debugBtn'); if (btn) btn.textContent = vrDebugEnabled ? 'VR Debug ON' : 'VR Debug'; } catch {}
   if (vrDebugEnabled) {
     // HUD plane attached to camera
     if (!hudMesh) {
@@ -173,6 +176,17 @@ function toggleVRDebug() {
         lidarPoints.material.needsUpdate = true;
       }
     } catch {}
+    // Joystick debug arrows attached to camera
+    if (!moveArrow) {
+      moveArrow = new THREE.ArrowHelper(new THREE.Vector3(0,0,-1), new THREE.Vector3(0, -0.1, -1.0), 0.01, 0x00ff66, 0.18, 0.09);
+      moveArrow.name = 'vrdbg_move';
+    }
+    if (moveArrow.parent !== camera) camera.add(moveArrow);
+    if (!yawArrow) {
+      yawArrow = new THREE.ArrowHelper(new THREE.Vector3(1,0,0), new THREE.Vector3(0, -0.4, -1.0), 0.01, 0xff5500, 0.18, 0.09);
+      yawArrow.name = 'vrdbg_yaw';
+    }
+    if (yawArrow.parent !== camera) camera.add(yawArrow);
   } else {
     try { if (hudMesh && hudMesh.parent) hudMesh.parent.remove(hudMesh); } catch {}
     try { if (fixedDebugMesh && fixedDebugMesh.parent) fixedDebugMesh.parent.remove(fixedDebugMesh); } catch {}
@@ -183,6 +197,8 @@ function toggleVRDebug() {
         lidarPoints.material.needsUpdate = true;
       }
     } catch {}
+    try { if (moveArrow && moveArrow.parent) moveArrow.parent.remove(moveArrow); } catch {}
+    try { if (yawArrow && yawArrow.parent) yawArrow.parent.remove(yawArrow); } catch {}
   }
   updateDebug();
 }
@@ -334,7 +350,8 @@ function ensureLidarScene() {
   lidarGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
   const material = new THREE.PointsMaterial({ color: 0x44ffaa, size: 0.03, sizeAttenuation: true });
   lidarPoints = new THREE.Points(lidarGeometry, material);
-  lidarPoints.position.set(0, 0, -2.5);
+  lidarPoints.position.set(0, 0, -2.0);
+  lidarPoints.renderOrder = 2;
   scene.add(lidarPoints);
 }
 
@@ -385,18 +402,32 @@ function updateLidarPoints(buffer) {
 function onXRFrame() {
   sendMoveIfNeeded();
   if (videoTexture) videoTexture.needsUpdate = true;
-  try {
-    // Keep the screen in front of user; useful for debugging visibility
-    const pos = new THREE.Vector3();
-    camera.getWorldPosition(pos);
-    const dir = new THREE.Vector3();
-    camera.getWorldDirection(dir);
-    const target = pos.clone().add(dir.multiplyScalar(2.2));
-    if (videoMesh) {
-      videoMesh.position.copy(target);
-      videoMesh.lookAt(pos);
+  // Update joystick debug arrows when VR Debug is ON
+  if (vrDebugEnabled) {
+    const m = debugState.move || { x: 0, y: 0, yaw: 0 };
+    if (moveArrow) {
+      const v = new THREE.Vector3(m.y, 0, -m.x);
+      const len = Math.min(0.8, Math.sqrt(m.x * m.x + m.y * m.y) * 0.8);
+      if (len > 0.01) {
+        moveArrow.setDirection(v.normalize());
+        moveArrow.setLength(len, 0.18, 0.09);
+        moveArrow.visible = true;
+      } else {
+        moveArrow.visible = false;
+      }
     }
-  } catch (e) {}
+    if (yawArrow) {
+      const len = Math.min(0.6, Math.abs(m.yaw) * 0.6);
+      if (len > 0.01) {
+        const sign = m.yaw >= 0 ? 1 : -1;
+        yawArrow.setDirection(new THREE.Vector3(sign, 0, 0));
+        yawArrow.setLength(len, 0.18, 0.09);
+        yawArrow.visible = true;
+      } else {
+        yawArrow.visible = false;
+      }
+    }
+  }
   renderer.render(scene, camera);
 }
 
