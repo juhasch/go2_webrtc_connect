@@ -1,9 +1,9 @@
 """
-Go2 Robot Sit Down Example
+Go2 Robot Stand Up Example
 ==========================
 
-This example demonstrates how to make the Go2 robot sit down using the Go2RobotHelper class.
-It's a very simple example that shows the basic sit command execution.
+This example demonstrates how to make the Go2 robot stand up using the Go2RobotHelper class.
+It's a very simple example that shows the basic stand up command execution.
 
 The Go2RobotHelper automatically handles:
 - WebRTC connection establishment and cleanup
@@ -13,7 +13,7 @@ The Go2RobotHelper automatically handles:
 - Proper resource management and cleanup
 
 Usage:
-    python sit_down.py
+    python stand_up.py
 
 Requirements:
 - Go2 robot with WebRTC connectivity
@@ -25,16 +25,18 @@ import asyncio
 from go2_webrtc_driver import Go2RobotHelper
 
 
-async def sit_down_demo(robot: Go2RobotHelper):
+async def stand_up_demo(robot: Go2RobotHelper):
     """
-    Simple sit down demonstration
+    Simple stand up demonstration
     """
-    print("🪑 Starting sit down demonstration...")
+    print("🦵 Starting stand up demonstration...")
     
-    # Make the robot sit down
-    await robot.execute_command("Sit", wait_time=10)
-    await robot.execute_command("StandUp", wait_time=3)
- 
+    # Make the robot stand up
+    await robot.execute_command("FrontFlip", wait_time=3)
+    
+    print("✅ Robot is now standing up!")
+    print("🦵 Stand up demonstration completed!")
+
 
 if __name__ == "__main__":
     """
@@ -43,7 +45,7 @@ if __name__ == "__main__":
     async def main():
         # All connection management, state monitoring, and cleanup is automatic
         async with Go2RobotHelper() as robot:
-            await sit_down_demo(robot)
+            await stand_up_demo(robot)
     
     # Standard error handling
     try:

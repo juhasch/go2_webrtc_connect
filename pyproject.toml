@@ -98,6 +98,7 @@ apps = [
 
 [project.entry-points."console_scripts"]
 go2-scanner = "go2_webrtc_driver.multicast_scanner:main"
+go2action = "go2_webrtc_driver.cli_go2action:main"
 
 [tool.setuptools.packages.find]
 where = ["."]

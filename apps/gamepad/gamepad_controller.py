@@ -237,7 +237,7 @@ async def run_controller(cfg: GamepadConfig, debug: bool = False) -> None:
 def load_config(path: str) -> GamepadConfig:
     with open(path, "r") as f:
         data: Dict = yaml.safe_load(f) or {}
-    return GamepadConfig.parse_obj(data)
+    return GamepadConfig.model_validate(data)
 
 
 def main() -> None:

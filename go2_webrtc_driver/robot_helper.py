@@ -757,6 +757,14 @@ class Go2RobotHelper:
         """Send obstacle-aware velocity (api_id=1003)."""
         await self._ensure_connection()
         try:
+            # Ensure locomotion is enabled (BalanceStand) after StandDown/Sit/StandUp
+            if self._needs_balance_stand:
+                try:
+                    await self.execute_command("BalanceStand", wait_time=0.3)
+                except Exception:
+                    pass
+                self._needs_balance_stand = False
+
             payload = {"api_id": 1003, "parameter": {"x": x, "y": y, "yaw": yaw, "mode": mode}}
             await self.conn.datachannel.pub_sub.publish_request_new(  # type: ignore[union-attr]
                 RTC_TOPIC['OBSTACLES_AVOID'], payload
