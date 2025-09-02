@@ -240,6 +240,9 @@ async function connectWebRTC() {
     iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
   });
 
+  // Ensure the offer contains a video m-line we can answer with a recv track
+  try { pc.addTransceiver('video', { direction: 'recvonly' }); } catch {}
+
   pc.ontrack = (ev) => {
     if (!videoEl) {
       videoEl = document.createElement('video');
