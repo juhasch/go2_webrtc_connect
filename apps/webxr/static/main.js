@@ -13,6 +13,7 @@ let pointerRight = null;
 let videoEl = null;
 let videoMesh = null;
 let videoTexture = null;
+let previewEl = null;
 
 let actions = [];
 let actionButtons = [];
@@ -56,6 +57,7 @@ function updateDebug() {
   lines.push(`Right axes: ${ra}`);
   const m = debugState.move;
   lines.push(`Move (x,y,yaw): ${m.x.toFixed(3)}, ${m.y.toFixed(3)}, ${m.yaw.toFixed(3)}`);
+  lines.push(`VR Debug: ${debugState.vrdbg ? 'ON' : 'off'}`);
   debugEl.textContent = lines.join('\n');
 }
 
@@ -122,6 +124,67 @@ async function setupThree() {
   if (voiceBtn) voiceBtn.addEventListener('click', toggleVoiceAssistant);
 
   initDebug();
+  previewEl = document.getElementById('preview');
+  const debugBtn = document.getElementById('debugBtn');
+  if (debugBtn) debugBtn.addEventListener('click', toggleVRDebug);
+}
+
+function ensureVideoMaterial() {
+  if (!videoTexture && videoEl) {
+    videoTexture = new THREE.VideoTexture(videoEl);
+    videoTexture.minFilter = THREE.LinearFilter;
+    videoTexture.magFilter = THREE.LinearFilter;
+  }
+  if (!videoTexture) {
+    return new THREE.MeshBasicMaterial({ color: 0x3333aa, side: THREE.DoubleSide });
+  }
+  return new THREE.MeshBasicMaterial({ map: videoTexture, side: THREE.DoubleSide });
+}
+
+function toggleVRDebug() {
+  vrDebugEnabled = !vrDebugEnabled;
+  debugState.vrdbg = vrDebugEnabled;
+  if (vrDebugEnabled) {
+    // HUD plane attached to camera
+    if (!hudMesh) {
+      const mat = ensureVideoMaterial();
+      const geo = new THREE.PlaneGeometry(1.6, 0.9);
+      hudMesh = new THREE.Mesh(geo, mat);
+      hudMesh.name = 'vrdebug_hud';
+      hudMesh.renderOrder = 999;
+    }
+    if (hudMesh.parent !== camera) {
+      camera.add(hudMesh);
+      hudMesh.position.set(0, 0, -1.6);
+    }
+    // World-fixed debug plane
+    if (!fixedDebugMesh) {
+      const mat2 = ensureVideoMaterial();
+      const geo2 = new THREE.PlaneGeometry(2.4, 1.35);
+      fixedDebugMesh = new THREE.Mesh(geo2, mat2);
+      fixedDebugMesh.name = 'vrdebug_fixed';
+      fixedDebugMesh.position.set(0, 1.4, -3.0);
+      scene.add(fixedDebugMesh);
+    }
+    // Make LiDAR more visible
+    try {
+      if (lidarPoints && lidarPoints.material) {
+        lidarPoints.material.size = 0.05;
+        lidarPoints.material.needsUpdate = true;
+      }
+    } catch {}
+  } else {
+    try { if (hudMesh && hudMesh.parent) hudMesh.parent.remove(hudMesh); } catch {}
+    try { if (fixedDebugMesh && fixedDebugMesh.parent) fixedDebugMesh.parent.remove(fixedDebugMesh); } catch {}
+    fixedDebugMesh = null;
+    try {
+      if (lidarPoints && lidarPoints.material) {
+        lidarPoints.material.size = 0.02;
+        lidarPoints.material.needsUpdate = true;
+      }
+    } catch {}
+  }
+  updateDebug();
 }
 
 function onWindowResize() {
@@ -363,6 +426,7 @@ async function connectWebRTC() {
       videoEl.addEventListener('loadedmetadata', () => { debugState.videoDims = `${videoEl.videoWidth}x${videoEl.videoHeight}`; updateDebug(); });
     }
     videoEl.srcObject = ev.streams[0];
+    if (previewEl && !previewEl.srcObject) previewEl.srcObject = ev.streams[0];
     // Create texture and assign to screen
     videoTexture = new THREE.VideoTexture(videoEl);
     videoTexture.minFilter = THREE.LinearFilter;
