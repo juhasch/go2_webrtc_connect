@@ -7,6 +7,7 @@ import os
 import time
 import ssl
 from typing import Any, Dict, List, Optional
+import numpy as np
 
 
 from go2_webrtc_driver import Go2RobotHelper
@@ -182,29 +183,52 @@ class RobotVRServer:
 
         try:
             data = message.get("data", {}).get("data", {})
-            # Unified decoder returns either list under "points" (native) or flat list under "positions" (libvoxel)
-            points = data.get("points")
-            if callable(points):
-                points = points()
-            if points is None:
+            src = ""
+            np_points: Optional[np.ndarray] = None
+            if "points" in data:
+                pts = data["points"]
+                if callable(pts):
+                    pts = pts()
+                # pts is likely a list-of-triplets or ndarray
+                arr = np.asarray(pts)
+                # Normalize to (N,3)
+                if arr.ndim == 1:
+                    n = (arr.size // 3) * 3
+                    arr = arr[:n].reshape(-1, 3)
+                elif arr.ndim >= 2 and arr.shape[1] >= 3:
+                    arr = arr[:, :3]
+                else:
+                    arr = arr.reshape(-1, 3)
+                np_points = arr.astype(np.float32, copy=False)
+                src = "points"
+            elif "positions" in data:
                 pos = data.get("positions", [])
-                points = [pos[i : i + 3] for i in range(0, len(pos), 3)]
+                arr = np.asarray(pos, dtype=np.float32)
+                n = (arr.size // 3) * 3
+                arr = arr[:n].reshape(-1, 3)
+                np_points = arr
+                src = "positions"
+            else:
+                np_points = None
+                src = "unknown"
 
-            # Downsample if needed
-            if len(points) > self.lidar_max_points:
-                step = max(1, len(points) // self.lidar_max_points)
-                points = points[::step]
-
-            # Pack as Float32Array binary
-            import array
-
-            flat: List[float] = []
-            for p in points:
-                # Safety: ensure 3 floats
-                if isinstance(p, (list, tuple)) and len(p) >= 3:
-                    flat.extend([float(p[0]), float(p[1]), float(p[2])])
-
-            buf = array.array("f", flat).tobytes()
+            # Downsample
+            buf = b""
+            out_pts = 0
+            if np_points is not None and np_points.size:
+                npts = np_points.shape[0]
+                step = 1
+                if npts > self.lidar_max_points:
+                    step = max(1, npts // self.lidar_max_points)
+                    np_points = np_points[::step]
+                    npts = np_points.shape[0]
+                # Flatten to bytes
+                buf = np_points.astype(np.float32, copy=False).ravel().tobytes()
+                out_pts = npts
+            else:
+                # No usable points decoded
+                buf = b""
+                out_pts = 0
 
             # Broadcast on lidar channels
             sent_count = 0
@@ -218,9 +242,9 @@ class RobotVRServer:
 
             self.last_lidar_sent_ts = now
             if sent_count:
-                logger.info("LiDAR TX: %d points to %d clients, %d bytes", len(flat)//3, sent_count, len(buf))
+                logger.info("LiDAR TX: %d points to %d clients, %d bytes (src=%s)", out_pts, sent_count, len(buf), src)
             else:
-                logger.info("LiDAR TX: no open clients; dropping frame (%d points)", len(flat)//3)
+                logger.info("LiDAR TX: no open clients; dropping frame (%d points, src=%s)", out_pts, src)
         except Exception as e:
             logger.debug(f"LiDAR processing error: {e}")
 
