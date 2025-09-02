@@ -8,13 +8,14 @@ import time
 import ssl
 from typing import Any, Dict, List, Optional
 
-from aiortc import RTCPeerConnection, RTCSessionDescription, MediaStreamTrack
-from aiortc.contrib.media import MediaRelay
-from aiohttp import web, ClientSession
 
 from go2_webrtc_driver import Go2RobotHelper
 from go2_webrtc_driver.constants import WebRTCConnectionMethod
 from go2_webrtc_driver.cli_go2action import SUPPORTED_ACTIONS
+
+from aiortc import RTCPeerConnection, RTCSessionDescription, MediaStreamTrack
+from aiortc.contrib.media import MediaRelay
+from aiohttp import web, ClientSession
 
 
 logging.basicConfig(level=logging.INFO)
