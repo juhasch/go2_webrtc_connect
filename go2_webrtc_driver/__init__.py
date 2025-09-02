@@ -38,7 +38,7 @@ __version__ = "1.0.0"
 
 # Export main classes and constants for easier importing
 from .webrtc_driver import Go2WebRTCConnection
-from .constants import WebRTCConnectionMethod, SPORT_CMD, RTC_TOPIC, VUI_COLOR
+from .constants import WebRTCConnectionMethod, SPORT_CMD, RTC_TOPIC, VUI_COLOR, MCF_CMD
 from .multicast_scanner import discover_ip_sn
 from .robot_helper import Go2RobotHelper, StateMonitor, RobotMode, create_example_main, simple_robot_connection
 
@@ -55,6 +55,7 @@ __all__ = [
     'Go2WebRTCConnection',
     'WebRTCConnectionMethod', 
     'SPORT_CMD',
+    'MCF_CMD',
     'RTC_TOPIC',
     'VUI_COLOR',
     'WebRTCAudioHub',

@@ -3,7 +3,7 @@ import asyncio
 import os
 import json
 import signal
-from go2_webrtc_driver.webrtc_driver import Go2WebRTCConnection, WebRTCConnectionMethod
+from go2_webrtc_driver.robot_helper import Go2RobotHelper
 from go2_webrtc_driver.webrtc_audiohub import WebRTCAudioHub
 
 # Enable logging for debugging
@@ -17,7 +17,7 @@ shutdown_event = asyncio.Event()
 
 def signal_handler(signum, frame):
     """Handle SIGINT (Ctrl+C) gracefully"""
-    logger.info("Program interrupted by user. Cleaning up...")
+    logger.debug("Program interrupted by user. Cleaning up...")
     shutdown_event.set()
 
 async def cleanup_tasks():
@@ -66,84 +66,68 @@ async def main():
     signal.signal(signal.SIGINT, signal_handler)
     
     try:
-        # Establish WebRTC connection
-        conn = Go2WebRTCConnection(WebRTCConnectionMethod.LocalSTA)
-        await conn.connect()
-        logger.info("WebRTC connection established")
+        # Use high-level helper (minimal verbosity)
+        async with Go2RobotHelper(enable_state_monitoring=False, logging_level=logging.ERROR) as robot:
+            conn = robot.conn
+            # Create audio hub instance
+            audio_hub = WebRTCAudioHub(conn, logger)
+            logger.debug("Audio hub initialized")
 
-        # Create audio hub instance
-        audio_hub = WebRTCAudioHub(conn, logger)
-        logger.info("Audio hub initialized")
+            # Define audio file to upload and play
+            audio_file = "dog-barking.wav"
+            audio_file_path = os.path.join(os.path.dirname(__file__), audio_file)
+            logger.debug(f"Using audio file: {audio_file_path}")
 
-        # Define audio file to upload and play
-        audio_file = "dog-barking.wav"
-        audio_file_path = os.path.join(os.path.dirname(__file__), audio_file)
-        logger.info(f"Using audio file: {audio_file_path}")
+            # Get the list of available audio files
+            response = await audio_hub.get_audio_list()
+            if response and isinstance(response, dict):
+                data_str = response.get('data', {}).get('data', '{}')
+                audio_list = json.loads(data_str).get('audio_list', [])
 
-        # Get the list of available audio files
-        response = await audio_hub.get_audio_list()
-        if response and isinstance(response, dict):
-            data_str = response.get('data', {}).get('data', '{}')
-            audio_list = json.loads(data_str).get('audio_list', [])
-            
-            # Extract filename without extension
-            filename = os.path.splitext(audio_file)[0]
-            print(audio_list)
-            # Check if file already exists by CUSTOM_NAME and store UUID
-            existing_audio = next((audio for audio in audio_list if audio['CUSTOM_NAME'] == filename), None)
-            if existing_audio:
-                print(f"Audio file {filename} already exists, skipping upload")
-                uuid = existing_audio['UNIQUE_ID']
-            else:
-                print(f"Audio file {filename} not found, proceeding with upload")
-                uuid = None
+                # Extract filename without extension
+                filename = os.path.splitext(audio_file)[0]
 
-                # Upload the audio file
-                logger.info("Starting audio file upload...")
-                await audio_hub.upload_audio_file(audio_file_path)
-                logger.info("Audio file upload completed")
-                response = await audio_hub.get_audio_list()
-                existing_audio = next((audio for audio in audio_list if audio['CUSTOM_NAME'] == filename), None)
-                uuid = existing_audio['UNIQUE_ID']
+                # Check if file already exists by CUSTOM_NAME and store UUID
+                existing_audio = next((audio for audio in audio_list if audio.get('CUSTOM_NAME') == filename), None)
+                if existing_audio:
+                    uuid = existing_audio.get('UNIQUE_ID')
+                else:
+                    uuid = None
 
-        # Play the uploaded audio file using its filename as UUID
-        print(f"Starting audio playback of file: {uuid}")
-        await audio_hub.play_by_uuid(uuid)
-        logger.info("Audio playback completed")
+                    # Upload the audio file
+                    logger.debug("Starting audio file upload...")
+                    await audio_hub.upload_audio_file(audio_file_path)
+                    logger.debug("Audio file upload completed")
 
-        # Wait for shutdown signal instead of exiting immediately
-        print("Audio playback finished. Press Ctrl+C to exit.")
-        await shutdown_event.wait()
+                    # Refresh and parse audio list after upload
+                    response = await audio_hub.get_audio_list()
+                    data_str = response.get('data', {}).get('data', '{}') if isinstance(response, dict) else '{}'
+                    audio_list = json.loads(data_str).get('audio_list', [])
+                    existing_audio = next((audio for audio in audio_list if audio.get('CUSTOM_NAME') == filename), None)
+                    uuid = existing_audio.get('UNIQUE_ID') if existing_audio else None
+
+            # Play the uploaded audio file using its filename as UUID
+            if not uuid:
+                logger.error("Audio file UUID not found after upload/list. Cannot start playback.")
+                return
+            print(f"Starting audio playback of file: {uuid}")
+            await audio_hub.play_by_uuid(uuid)
+            logger.debug("Audio playback completed")
+
+            # Exit immediately after requesting playback
+            print("Playback command sent. Exiting.")
 
     except Exception as e:
         logger.error(f"An error occurred: {e}")
     finally:
-        logger.info("Stopping audio and cleaning up...")
+        logger.debug("Stopping audio and cleaning up...")
         
-        # Clean up audio hub first
+        # Clean up audio hub (connection handled by helper context)
         if audio_hub:
             try:
-                # Stop any ongoing audio operations
-                # Note: WebRTCAudioHub might need specific cleanup methods
-                # For now, we'll just clear the reference
                 audio_hub = None
             except Exception as e:
                 logger.debug(f"Error cleaning up audio hub: {e}")
-        
-        # Then disconnect WebRTC
-        if conn:
-            try:
-                # Suppress aiortc connection errors during shutdown
-                original_level = logging.getLogger('aiortc').level
-                logging.getLogger('aiortc').setLevel(logging.CRITICAL)
-                
-                await conn.disconnect()
-                
-                # Restore original logging level
-                logging.getLogger('aiortc').setLevel(original_level)
-                
-            except Exception as e:
-                logger.debug(f"Error disconnecting: {e}")
         
         # Clean up any remaining tasks
         await cleanup_tasks()
@@ -157,4 +141,4 @@ if __name__ == "__main__":
     except Exception as e:
         logger.error(f"Unexpected error: {e}")
     
-    logger.info("Program exited successfully")
+    logger.debug("Program exited successfully")

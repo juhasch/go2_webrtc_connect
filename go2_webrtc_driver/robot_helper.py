@@ -43,7 +43,7 @@ from typing import Optional, Dict, Any, Callable, Union, List
 from enum import Enum
 
 from .webrtc_driver import Go2WebRTCConnection, WebRTCConnectionMethod
-from .constants import RTC_TOPIC, SPORT_CMD, DATA_CHANNEL_TYPE
+from .constants import RTC_TOPIC, SPORT_CMD, MCF_CMD, DATA_CHANNEL_TYPE
 
 logging.getLogger('aioice.ice').setLevel(logging.CRITICAL)
 
@@ -402,13 +402,20 @@ class Go2RobotHelper:
         Returns:
             Command response
         """
-        if command not in SPORT_CMD:
-            raise ValueError(f"Unknown command: {command}. Available commands: {list(SPORT_CMD.keys())}")
+        # Prefer MCF_CMD (firmware 1.1.7 default), fall back to SPORT_CMD
+        api_id = None
+        if command in MCF_CMD:
+            api_id = MCF_CMD[command]
+        elif command in SPORT_CMD:
+            api_id = SPORT_CMD[command]
+        else:
+            available = sorted(set(list(MCF_CMD.keys()) + list(SPORT_CMD.keys())))
+            raise ValueError(f"Unknown command: {command}. Available commands: {available}")
             
         print(f"🎯 Executing command: {command}")
         
         try:
-            request_data = {"api_id": SPORT_CMD[command]}
+            request_data = {"api_id": api_id}
             if parameter:
                 request_data["parameter"] = parameter
 
@@ -814,7 +821,7 @@ class Go2RobotHelper:
             await self.conn.datachannel.pub_sub.publish_request_new(
                 RTC_TOPIC["SPORT_MOD"], 
                 {
-                    "api_id": SPORT_CMD["StandOut"],
+                    "api_id": (MCF_CMD.get("StandOut") or SPORT_CMD["StandOut"]),
                     "parameter": {"data": False}
                 }
             )
@@ -823,7 +830,7 @@ class Go2RobotHelper:
             # StandDown before mode switch (required for firmware 1.1.7)
             await self.conn.datachannel.pub_sub.publish_request_new(
                 RTC_TOPIC["SPORT_MOD"], 
-                {"api_id": SPORT_CMD["StandDown"]}
+                {"api_id": (MCF_CMD.get("StandDown") or SPORT_CMD["StandDown"])}
             )
             await asyncio.sleep(2)
             
@@ -840,7 +847,7 @@ class Go2RobotHelper:
             # Stand up
             await self.conn.datachannel.pub_sub.publish_request_new(
                 RTC_TOPIC["SPORT_MOD"], 
-                {"api_id": SPORT_CMD["StandUp"]}
+                {"api_id": (MCF_CMD.get("StandUp") or SPORT_CMD["StandUp"])}
             )
             await asyncio.sleep(2)
             

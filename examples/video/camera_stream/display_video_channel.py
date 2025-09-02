@@ -1,12 +1,6 @@
 import cv2
 import numpy as np
 
-# Create an OpenCV window and display a blank image
-height, width = 720, 1280  # Adjust the size as needed
-img = np.zeros((height, width, 3), dtype=np.uint8)
-cv2.imshow('Video', img)
-cv2.waitKey(1)  # Ensure the window is created
-
 import asyncio
 import logging
 import threading
@@ -27,6 +21,18 @@ def main():
 
     # Choose a connection method (uncomment the correct one)
     conn = Go2WebRTCConnection(WebRTCConnectionMethod.LocalSTA)
+
+    # Preflight: exit early if ROBOT_IP is missing for LocalSTA
+    if conn.connectionMethod == WebRTCConnectionMethod.LocalSTA and not conn.ip:
+        logging.error("ROBOT_IP is not set. Please export ROBOT_IP or pass an IP.")
+        stop_flag.set()
+        return
+
+    # Create an OpenCV window and display a blank image
+    height, width = 720, 1280  # Adjust the size as needed
+    img = np.zeros((height, width, 3), dtype=np.uint8)
+    cv2.imshow('Video', img)
+    cv2.waitKey(1)  # Ensure the window is created
 
     # Async function to receive video frames and put them in the queue
     async def recv_camera_stream(track: MediaStreamTrack):
@@ -70,14 +76,18 @@ def main():
                 # Try to disconnect even if there was an error
                 try:
                     await conn.disconnect()
-                except:
+                except Exception:
                     pass
+                # Signal main loop to stop on connection failure
+                stop_flag.set()
 
         # Run the setup coroutine and then start the event loop
         try:
             loop.run_until_complete(setup_and_run())
         except Exception as e:
             logging.error(f"Event loop error: {e}")
+            # Ensure main loop exits on event loop errors
+            stop_flag.set()
         finally:
             loop.close()
 
@@ -89,10 +99,9 @@ def main():
     asyncio_thread.start()
 
     try:
-        while True:
+        while not stop_flag.is_set():
             if not frame_queue.empty():
                 img = frame_queue.get()
-                print(f"Shape: {img.shape}, Dimensions: {img.ndim}, Type: {img.dtype}, Size: {img.size}")
                 # Display the frame
                 cv2.imshow('Video', img)
             
