@@ -1,0 +1,20 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Go2 VR WebXR</title>
+    <style>
+      body { margin: 0; background: #000; color: #ddd; font-family: system-ui, sans-serif; }
+      #enter { position: fixed; top: 10px; left: 10px; z-index: 10; }
+      #overlay { position: fixed; bottom: 10px; left: 10px; z-index: 10; background: rgba(0,0,0,0.5); padding: 6px 10px; border-radius: 6px; }
+      a, a:visited { color: #8cf; }
+    </style>
+  </head>
+  <body>
+    <div id="overlay">Left stick: move; Right X: yaw; Trigger: click actions | <button id="voiceBtn">Start Voice</button> <span id="asst"></span></div>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/webxr/VRButton.js"></script>
+    <script src="/static/main.js"></script>
+  </body>
+  </html>
