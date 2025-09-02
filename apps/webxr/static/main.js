@@ -332,7 +332,7 @@ function ensureLidarScene() {
   lidarGeometry = new THREE.BufferGeometry();
   const positions = new Float32Array(3); // will grow dynamically
   lidarGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-  const material = new THREE.PointsMaterial({ color: 0x44ffaa, size: 0.02, sizeAttenuation: true });
+  const material = new THREE.PointsMaterial({ color: 0x44ffaa, size: 0.03, sizeAttenuation: true });
   lidarPoints = new THREE.Points(lidarGeometry, material);
   lidarPoints.position.set(0, 0, -2.5);
   scene.add(lidarPoints);
@@ -347,8 +347,36 @@ function updateLidarPoints(buffer) {
   if (!oldAttr || oldAttr.array.length < arr.length) {
     lidarGeometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(arr.length), 3));
   }
+  // Center and scale to fit ~1.5m box for visibility
+  let sx = 0, sy = 0, sz = 0;
+  for (let i = 0; i < count; i++) {
+    sx += arr[3*i + 0];
+    sy += arr[3*i + 1];
+    sz += arr[3*i + 2];
+  }
+  const mx = sx / Math.max(1, count);
+  const my = sy / Math.max(1, count);
+  const mz = sz / Math.max(1, count);
+  let maxAbs = 1e-6;
+  const dst = lidarGeometry.getAttribute('position').array;
+  for (let i = 0; i < count; i++) {
+    const x = arr[3*i + 0] - mx;
+    const y = arr[3*i + 1] - my;
+    const z = arr[3*i + 2] - mz;
+    const ax = Math.abs(x), ay = Math.abs(y), az = Math.abs(z);
+    if (ax > maxAbs) maxAbs = ax;
+    if (ay > maxAbs) maxAbs = ay;
+    if (az > maxAbs) maxAbs = az;
+    dst[3*i + 0] = x;
+    dst[3*i + 1] = y;
+    dst[3*i + 2] = z;
+  }
+  // Scale so the largest axis fits ~1.5 meters
+  const scale = 1.5 / maxAbs;
+  if (scale > 0 && scale !== 1) {
+    for (let i = 0; i < count*3; i++) dst[i] *= scale;
+  }
   const attr = lidarGeometry.getAttribute('position');
-  attr.array.set(arr);
   attr.needsUpdate = true;
   lidarGeometry.setDrawRange(0, count);
   lidarGeometry.computeBoundingSphere();
