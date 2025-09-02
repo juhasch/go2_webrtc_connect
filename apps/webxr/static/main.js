@@ -14,6 +14,12 @@ let videoEl = null;
 let videoMesh = null;
 let videoTexture = null;
 let previewEl = null;
+// VR debug visuals
+let vrDebugEnabled = false;
+let hudMesh = null;        // camera-attached HUD plane
+let fixedDebugMesh = null; // world-fixed debug plane
+let moveArrow = null;      // shows x/y move vector
+let yawArrow = null;       // shows yaw magnitude/direction
 
 let actions = [];
 let actionButtons = [];
