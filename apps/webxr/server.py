@@ -5,6 +5,7 @@ import json
 import logging
 import os
 import time
+import ssl
 from typing import Any, Dict, List, Optional
 
 from aiortc import RTCPeerConnection, RTCSessionDescription, MediaStreamTrack
@@ -395,9 +396,15 @@ async def create_app(args: argparse.Namespace) -> web.Application:
 
 
 def parse_args() -> argparse.Namespace:
+    home = os.path.expanduser("~")
+    default_cert = os.path.join(home, ".local", "server", "fullchain.pem")
+    default_key = os.path.join(home, ".local", "server", "privkey.pem")
     p = argparse.ArgumentParser(description="WebXR server for Go2 VR control/streaming")
-    p.add_argument("--host", default="0.0.0.0", help="HTTP host (default: 0.0.0.0)")
-    p.add_argument("--port", type=int, default=8080, help="HTTP port (default: 8080)")
+    p.add_argument("--host", default="0.0.0.0", help="Bind host (default: 0.0.0.0)")
+    p.add_argument("--port", type=int, default=8080, help="Port; if TLS is enabled, this is HTTPS port")
+    p.add_argument("--certfile", type=str, default=default_cert, help="Path to TLS certificate (PEM). Defaults to ~/.local/server/fullchain.pem if present")
+    p.add_argument("--keyfile", type=str, default=default_key, help="Path to TLS private key (PEM). Defaults to ~/.local/server/privkey.pem if present")
+    p.add_argument("--redirect-http", type=int, default=None, help="Optional HTTP port to run 301 redirect → HTTPS")
     p.add_argument("--method", choices=["ap", "sta", "remote"], default="sta")
     p.add_argument("--serial", default=os.getenv("GO2_SN"))
     p.add_argument("--ip", default=os.getenv("ROBOT_IP"))
@@ -407,12 +414,62 @@ def parse_args() -> argparse.Namespace:
     return p.parse_args()
 
 
+async def _run_servers(args: argparse.Namespace) -> None:
+    app = await create_app(args)
+
+    # Prepare main HTTPS/HTTP site
+    ssl_ctx = None
+    certfile = os.path.expanduser(args.certfile) if args.certfile else None
+    keyfile = os.path.expanduser(args.keyfile) if args.keyfile else None
+    if certfile and keyfile and os.path.exists(certfile) and os.path.exists(keyfile):
+        try:
+            ssl_ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+            ssl_ctx.load_cert_chain(certfile, keyfile)
+            logging.info("TLS enabled on port %s using %s", args.port, certfile)
+        except Exception as e:
+            logging.error("Failed to load TLS cert/key (%s, %s): %s", certfile, keyfile, e)
+            ssl_ctx = None
+    if ssl_ctx is None:
+        logging.warning(
+            "TLS not enabled. Pico 4 WebXR typically requires HTTPS. "
+            "Place certificates at ~/.local/server/fullchain.pem and ~/.local/server/privkey.pem or pass --certfile/--keyfile."
+        )
+
+    runner = web.AppRunner(app)
+    await runner.setup()
+    main_site = web.TCPSite(runner, host=args.host, port=args.port, ssl_context=ssl_ctx)
+    await main_site.start()
+
+    # Optional redirect HTTP → HTTPS
+    if args.redirect_http:
+        async def redir(request: web.Request) -> web.Response:
+            # Build https URL using same host but HTTPS port
+            host = request.host
+            # Strip incoming port and replace with HTTPS port
+            if ':' in host:
+                host = host.split(':')[0]
+            target_host = host if args.port == 443 else f"{host}:{args.port}"
+            url = f"https://{target_host}{request.rel_url}"
+            raise web.HTTPMovedPermanently(location=url)
+
+        redirect_app = web.Application()
+        redirect_app.router.add_route('*', '/{tail:.*}', redir)
+        redir_runner = web.AppRunner(redirect_app)
+        await redir_runner.setup()
+        redir_site = web.TCPSite(redir_runner, host=args.host, port=args.redirect_http)
+        await redir_site.start()
+        logging.info("HTTP redirect enabled on port %s → https://<host>:%s", args.redirect_http, args.port)
+
+    # Keep running
+    await asyncio.Event().wait()
+
+
 def main() -> None:
     args = parse_args()
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    app = loop.run_until_complete(create_app(args))
-    web.run_app(app, host=args.host, port=args.port)
+    try:
+        asyncio.run(_run_servers(args))
+    except KeyboardInterrupt:
+        pass
 
 
 if __name__ == "__main__":

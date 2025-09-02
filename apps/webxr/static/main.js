@@ -265,6 +265,7 @@ async function connectWebRTC() {
           if (msg.type === 'actions') {
             actions = msg.actions || [];
             layoutActionButtons();
+            updateRealtimeTools();
           }
         } catch (e) {}
       };
@@ -300,6 +301,7 @@ let voiceDC = null; // oai-events
 let micStream = null;
 let asstBox = null;
 let asstBuf = '';
+const pendingToolCalls = new Map();
 
 function ensureAsstBox() {
   if (!asstBox) {
@@ -363,6 +365,8 @@ async function startVoiceAssistant() {
   for (const t of micStream.getAudioTracks()) {
     voicePC.addTrack(t, micStream);
   }
+  // Ensure we can receive TTS audio back
+  try { voicePC.addTransceiver('audio', { direction: 'recvonly' }); } catch {}
 
   const offer = await voicePC.createOffer();
   await voicePC.setLocalDescription(offer);
@@ -380,15 +384,12 @@ async function startVoiceAssistant() {
   const answerSdp = await sdpResp.text();
   await voicePC.setRemoteDescription({ type: 'answer', sdp: answerSdp });
 
-  // Configure session with instructions and format
-  const actionList = actions && actions.length ? actions.join(', ') : 'StandUp, StandDown, Hello, Sit, RecoveryStand';
-  const systemPrompt = `You are a helpful robotic dog assistant for a Unitree Go2 in VR.\n` +
-    `Keep responses short (1-2 sentences).\n` +
-    `If the user requests an action/movement, append on a final single line a JSON object: ` +
-    `{"intent":"robot_action"|"robot_move"|"status", "action":"<one of: ${actionList}>"?, "move":{"x":number,"y":number,"yaw":number}?}. ` +
-    `Only include that one JSON object on the last line after your normal response.`;
-
+  // Configure session with instructions and tools
+  const systemPrompt = `You are a concise, friendly VR dog assistant for a Unitree Go2.\n` +
+    `Use the provided tools when the user asks to move or perform actions, or asks for status. ` +
+    `Keep spoken responses brief (1–2 sentences).`;
   sendOAI({ type: 'session.update', session: { instructions: systemPrompt } });
+  updateRealtimeTools();
   // Greeting
   sendOAI({ type: 'response.create', response: { instructions: 'Say hello. Listen to the user and follow the instructions.' } });
 }
@@ -411,6 +412,8 @@ function onOAIEvent(ev) {
       if (t === 'response.output_text.delta' && msg.delta) {
         asstBuf += msg.delta;
         if (el) el.textContent = asstBuf;
+      } else if (t && t.startsWith('response.output_tool_call')) {
+        handleToolEvent(msg);
       } else if (t === 'response.completed') {
         // Parse trailing single-line JSON command
         const cmd = extractTrailingJSON(asstBuf);
@@ -421,6 +424,106 @@ function onOAIEvent(ev) {
   } catch (e) {
     console.warn('oai event parse failed', e);
   }
+}
+
+function updateRealtimeTools() {
+  if (!voiceDC || voiceDC.readyState !== 'open') return;
+  const actionEnum = (actions && actions.length) ? actions : undefined;
+  const tools = [
+    {
+      type: 'function',
+      name: 'robot_action',
+      description: 'Execute a Unitree Go2 action (e.g., StandUp, Hello).',
+      parameters: {
+        type: 'object',
+        properties: {
+          action: actionEnum ? { type: 'string', enum: actionEnum } : { type: 'string' },
+          wait_s: { type: 'number', description: 'Seconds to wait after command' }
+        },
+        required: ['action'],
+        additionalProperties: false
+      }
+    },
+    {
+      type: 'function',
+      name: 'robot_move',
+      description: 'Move the robot with velocity commands.',
+      parameters: {
+        type: 'object',
+        properties: {
+          x: { type: 'number', description: 'Forward/back velocity (-1..1)' },
+          y: { type: 'number', description: 'Strafe velocity (-1..1)' },
+          yaw: { type: 'number', description: 'Yaw rate (-1..1)' }
+        },
+        required: ['x', 'y', 'yaw'],
+        additionalProperties: false
+      }
+    },
+    {
+      type: 'function',
+      name: 'get_status',
+      description: 'Return current robot status summary.',
+      parameters: { type: 'object', properties: {}, additionalProperties: false }
+    }
+  ];
+  sendOAI({ type: 'session.update', session: { tools, tool_choice: 'auto' } });
+}
+
+function handleToolEvent(msg) {
+  const id = msg.id || msg.tool_call_id || (msg?.item?.id);
+  if (!id) return;
+  let tc = pendingToolCalls.get(id);
+  if (!tc) { tc = { name: '', args: '' }; pendingToolCalls.set(id, tc); }
+  const d = msg.delta || {};
+  if (d.name) tc.name = d.name; if (msg.name) tc.name = msg.name;
+  if (d.arguments) tc.args += d.arguments; if (msg.arguments) tc.args = msg.arguments;
+  if (msg.type && msg.type.endsWith('completed')) {
+    finalizeToolCall(id, tc);
+  }
+}
+
+async function finalizeToolCall(id, tc) {
+  let args = {};
+  try { if (tc.args) args = JSON.parse(tc.args); } catch {}
+  let output = '';
+  try {
+    output = await executeTool(tc.name, args);
+  } catch (e) {
+    output = JSON.stringify({ ok: false, error: String(e) });
+  }
+  sendOAI({ type: 'tool.output', tool_call_id: id, output: typeof output === 'string' ? output : JSON.stringify(output) });
+  sendOAI({ type: 'response.create' });
+  pendingToolCalls.delete(id);
+}
+
+async function executeTool(name, args) {
+  if (!name) return JSON.stringify({ ok: false, error: 'missing tool name' });
+  if (name === 'robot_action') {
+    const action = String(args?.action || '');
+    if (controlChannel && controlChannel.readyState === 'open' && action) {
+      controlChannel.send(JSON.stringify({ type: 'action', name: action }));
+      return JSON.stringify({ ok: true, action });
+    }
+    return JSON.stringify({ ok: false, error: 'control channel not ready or empty action' });
+  }
+  if (name === 'robot_move') {
+    const x = Number(args?.x) || 0, y = Number(args?.y) || 0, yaw = Number(args?.yaw) || 0;
+    if (controlChannel && controlChannel.readyState === 'open') {
+      controlChannel.send(JSON.stringify({ type: 'move', x, y, yaw }));
+      return JSON.stringify({ ok: true, move: { x, y, yaw } });
+    }
+    return JSON.stringify({ ok: false, error: 'control channel not ready' });
+  }
+  if (name === 'get_status') {
+    try {
+      const s = await fetch('/state').then(r => r.json());
+      const text = summarizeState(s);
+      return JSON.stringify({ ok: true, text, state: s });
+    } catch (e) {
+      return JSON.stringify({ ok: false, error: String(e) });
+    }
+  }
+  return JSON.stringify({ ok: false, error: 'unknown tool ' + name });
 }
 
 function extractTrailingJSON(text) {
