@@ -1,0 +1,10 @@
+# Requirements for LIDAR PCD recording functionality
+# Core dependencies
+pypcd>=0.1.0
+
+# Optional dependencies for enhanced PCD support
+python-lzf>=0.2.4  # For compressed PCD support
+
+# Existing go2_webrtc_connect dependencies
+numpy>=1.21.0
+asyncio

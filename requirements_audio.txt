@@ -1,0 +1,14 @@
+# Audio processing dependencies for go2_webrtc_connect
+# These are required when using WebRTCAudioHub functionality
+
+# Core audio processing library (replaces pydub)
+soundfile>=0.12.1
+
+# Scientific computing for audio resampling
+numpy>=1.21.0
+scipy>=1.7.0
+
+# Note: soundfile requires libsndfile system library
+# On macOS: brew install libsndfile
+# On Ubuntu/Debian: sudo apt-get install libsndfile1-dev
+# On Windows: conda install libsndfile
