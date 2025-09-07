@@ -10,7 +10,7 @@ import pygame
 import yaml
 
 from go2_webrtc_driver import Go2RobotHelper
-from go2_webrtc_driver.constants import WebRTCConnectionMethod
+from go2_webrtc_driver.constants import WebRTCConnectionMethod, RTC_TOPIC
 
 # Allow running as a standalone script without package context
 try:
@@ -45,8 +45,22 @@ def connection_ready(robot: Go2RobotHelper) -> bool:
         conn = getattr(robot, "conn", None)
         if not conn or not getattr(conn, "isConnected", False):
             return False
+        
+        # Check WebRTC connection states
+        pc = getattr(conn, "pc", None)
+        if pc:
+            # Check if peer connection is in a good state
+            if pc.connectionState in ["failed", "closed", "disconnected"]:
+                return False
+            if pc.iceConnectionState in ["failed", "closed", "disconnected"]:
+                return False
+        
+        # Check data channel
         dc = getattr(conn, "datachannel", None)
-        return bool(dc and dc.is_open())
+        if not dc or not dc.is_open():
+            return False
+            
+        return True
     except Exception:
         return False
 
@@ -71,6 +85,57 @@ async def safe_execute(
         return True
     except Exception:
         return False
+
+
+async def connection_monitor(robot: Go2RobotHelper, cfg: GamepadConfig, debug: bool = False) -> None:
+    """Monitor connection state and attempt reconnection when needed."""
+    if not cfg.keepalive.enabled:
+        _dbg(debug, "[dbg] Keepalive disabled, skipping connection monitor")
+        return
+
+    reconnect_attempts = 0
+    max_reconnect_attempts = cfg.keepalive.max_reconnect_attempts
+
+    while True:
+        try:
+            # Rely on built-in data channel heartbeat; only reconnect if connection not ready
+            if not connection_ready(robot):
+                if reconnect_attempts < max_reconnect_attempts:
+                    try:
+                        await robot.conn.reconnect()
+                        _dbg(debug, "[dbg] Reconnected after connection check")
+                        # Re-apply programmatic control and obstacle settings after reconnect
+                        try:
+                            await ensure_programmatic_control(robot)
+                        except Exception:
+                            pass
+                        try:
+                            # Ensure obstacle detection and remote API control are restored
+                            await robot.obstacle_detection("enable")
+                            await robot.set_obstacle_remote_commands(True)
+                        except Exception:
+                            pass
+                        try:
+                            await robot.conn.datachannel.disableTrafficSaving(True)  # type: ignore[attr-defined]
+                        except Exception:
+                            pass
+                        reconnect_attempts += 1
+                    except Exception:
+                        _dbg(debug, "[dbg] Reconnection failed")
+                        reconnect_attempts += 1
+            else:
+                # Reset attempts on healthy connection
+                reconnect_attempts = 0
+
+            # Check connection state every second
+            await asyncio.sleep(1.0)
+
+        except asyncio.CancelledError:
+            _dbg(debug, "[dbg] Connection monitor cancelled")
+            break
+        except Exception as e:
+            _dbg(debug, f"[dbg] Connection monitor error: {e}")
+            await asyncio.sleep(1.0)
 
 
 def _dbg(enabled: bool, msg: str) -> None:
@@ -101,6 +166,26 @@ async def run_controller(cfg: GamepadConfig, debug: bool = False) -> None:
     ) as robot:
         await ensure_programmatic_control(robot)
         _dbg(debug, "[dbg] Programmatic control prepared (joystick/free-walk disabled, speed set)")
+
+        # Reduce idle disconnects by disabling traffic saving on the robot
+        try:
+            await robot.conn.datachannel.disableTrafficSaving(True)  # type: ignore[attr-defined]
+            _dbg(debug, "[dbg] Traffic saving disabled on robot")
+        except Exception:
+            _dbg(debug, "[dbg] Could not disable traffic saving")
+
+        # Start connection monitoring task
+        monitor_task = asyncio.create_task(connection_monitor(robot, cfg, debug))
+        _dbg(debug, "[dbg] Connection monitor started")
+
+        # Keep the connection warm by subscribing to a low-frequency state topic
+        subscribed_topic = None
+        try:
+            robot.conn.datachannel.pub_sub.subscribe(RTC_TOPIC['LF_SPORT_MOD_STATE'])  # type: ignore[attr-defined]
+            subscribed_topic = RTC_TOPIC['LF_SPORT_MOD_STATE']
+            _dbg(debug, "[dbg] Subscribed to LF sport state for keepalive")
+        except Exception:
+            pass
 
         # Optional: enable obstacle avoidance on start and allow remote API control for avoid-move
         obstacle_enabled = False
@@ -224,7 +309,25 @@ async def run_controller(cfg: GamepadConfig, debug: bool = False) -> None:
                             idle_sent = True
 
                 clock.tick(120)
+                # Yield to event loop so heartbeat/network tasks can run
+                await asyncio.sleep(0)
         finally:
+            # Cancel the connection monitor task
+            if 'monitor_task' in locals():
+                monitor_task.cancel()
+                try:
+                    await monitor_task
+                except asyncio.CancelledError:
+                    pass
+                _dbg(debug, "[dbg] Connection monitor stopped")
+            
+            # Unsubscribe keepalive topic
+            try:
+                if 'subscribed_topic' in locals() and subscribed_topic:
+                    robot.conn.datachannel.pub_sub.unsubscribe(subscribed_topic)  # type: ignore[attr-defined]
+            except Exception:
+                pass
+
             try:
                 await robot.set_obstacle_remote_commands(False)
                 _dbg(debug, "[dbg] Set remote API control (1004) -> False: ok")

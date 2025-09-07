@@ -82,4 +82,10 @@ obstacle:
   enable_on_start: true
   toggle_button_index: 6
 
+keepalive:
+  enabled: true
+  interval_s: 5.0
+  timeout_s: 3.0
+  max_reconnect_attempts: 3
+
 

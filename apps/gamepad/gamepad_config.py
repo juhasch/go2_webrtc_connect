@@ -80,6 +80,15 @@ class ObstacleConfig(BaseModel):
     toggle_button_index: Optional[int] = None
 
 
+class KeepaliveConfig(BaseModel):
+    """Connection keepalive options."""
+
+    enabled: bool = True
+    interval_s: float = 5.0
+    timeout_s: float = 3.0
+    max_reconnect_attempts: int = 3
+
+
 class ConnectionConfig(BaseModel):
     method: Optional[str] = Field(default="sta", description="ap|sta|remote")
     ip: Optional[str] = None
@@ -95,5 +104,6 @@ class GamepadConfig(BaseModel):
     movement: MovementConfig = Field(default_factory=MovementConfig)
     actions: ActionConfig = Field(default_factory=ActionConfig)
     obstacle: ObstacleConfig = Field(default_factory=ObstacleConfig)
+    keepalive: KeepaliveConfig = Field(default_factory=KeepaliveConfig)
 
 
