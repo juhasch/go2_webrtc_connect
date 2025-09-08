@@ -32,7 +32,7 @@ async def stand_up_demo(robot: Go2RobotHelper):
     print("🦵 Starting stand up demonstration...")
     
     # Make the robot stand up
-    await robot.execute_command("FrontFlip", wait_time=3)
+    await robot.execute_command("Stretch", wait_time=3)
     
     print("✅ Robot is now standing up!")
     print("🦵 Stand up demonstration completed!")
