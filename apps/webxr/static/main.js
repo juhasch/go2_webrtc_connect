@@ -354,7 +354,10 @@ function ensureLidarScene() {
   lidarGeometry = new THREE.BufferGeometry();
   const positions = new Float32Array(3); // will grow dynamically
   lidarGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-  const material = new THREE.PointsMaterial({ color: 0x44ffaa, size: 0.03, sizeAttenuation: true });
+  // Initialize color attribute for per-vertex coloring
+  const colors = new Float32Array(3);
+  lidarGeometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  const material = new THREE.PointsMaterial({ size: 0.03, sizeAttenuation: true, vertexColors: true });
   lidarPoints = new THREE.Points(lidarGeometry, material);
   lidarPoints.position.set(0, 0, -2.0);
   lidarPoints.renderOrder = 2;
@@ -369,6 +372,14 @@ function updateLidarPoints(buffer) {
   const oldAttr = lidarGeometry.getAttribute('position');
   if (!oldAttr || oldAttr.array.length < arr.length) {
     lidarGeometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(arr.length), 3));
+    // Resize color attribute accordingly
+    lidarGeometry.setAttribute('color', new THREE.BufferAttribute(new Float32Array(count * 3), 3));
+  } else {
+    // Ensure color attribute exists and is large enough
+    const oldColor = lidarGeometry.getAttribute('color');
+    if (!oldColor || oldColor.array.length < count * 3) {
+      lidarGeometry.setAttribute('color', new THREE.BufferAttribute(new Float32Array(count * 3), 3));
+    }
   }
   // Center and scale to fit ~1.5m box for visibility
   let sx = 0, sy = 0, sz = 0;
@@ -399,8 +410,38 @@ function updateLidarPoints(buffer) {
   if (scale > 0 && scale !== 1) {
     for (let i = 0; i < count*3; i++) dst[i] *= scale;
   }
+  // Compute per-vertex colors based on height (z), rainbow HSV hue from blue->red
+  const colorAttr = lidarGeometry.getAttribute('color');
+  const cArr = colorAttr.array;
+  let zMin = Infinity, zMax = -Infinity;
+  for (let i = 0; i < count; i++) {
+    const z = dst[3*i + 2];
+    if (z < zMin) zMin = z;
+    if (z > zMax) zMax = z;
+  }
+  const denom = (zMax - zMin) > 1e-6 ? (zMax - zMin) : 1e-6;
+  for (let i = 0; i < count; i++) {
+    const z = dst[3*i + 2];
+    const norm = (z - zMin) / denom; // 0..1
+    const hue = (2.0 / 3.0) * (1.0 - norm); // 2/3..0 blue->red
+    const hh = hue * 6.0;
+    const c = 1.0;
+    const x = c * (1.0 - Math.abs((hh % 2.0) - 1.0));
+    const sext = Math.floor(hh) % 6;
+    let r = 0, g = 0, b = 0;
+    if (sext === 0) { r = c; g = x; b = 0; }
+    else if (sext === 1) { r = x; g = c; b = 0; }
+    else if (sext === 2) { r = 0; g = c; b = x; }
+    else if (sext === 3) { r = 0; g = x; b = c; }
+    else if (sext === 4) { r = x; g = 0; b = c; }
+    else /* 5 */ { r = c; g = 0; b = x; }
+    cArr[3*i + 0] = r;
+    cArr[3*i + 1] = g;
+    cArr[3*i + 2] = b;
+  }
   const attr = lidarGeometry.getAttribute('position');
   attr.needsUpdate = true;
+  colorAttr.needsUpdate = true;
   lidarGeometry.setDrawRange(0, count);
   lidarGeometry.computeBoundingSphere();
 }
