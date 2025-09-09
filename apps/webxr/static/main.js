@@ -231,7 +231,7 @@ const PC_PITCH_MIN = -1.3, PC_PITCH_MAX = 1.3;
 const PC_ROT_SPEED = 2.2; // rad/sec per full deflection
 let RIGHT_B_INDEX = 1; // heuristic default; can override via ?rb=idx
 let _prevRightB = false;
-let RIGHT_PANEL_INDEX = 0; // default A button for panel toggle; override via ?rp=idx
+let RIGHT_PANEL_INDEX = 4; // default button index for panel toggle; override via ?rp=idx
 let _prevRightPanel = false;
 
 function onKeyDown(e) {
@@ -450,7 +450,7 @@ function ensureControlPanelGroup() {
     panelGroup.renderOrder = 9999;
     hudGroup.add(panelGroup);
     panelGroup.position.set(0, -0.02, 0);
-    panelGroup.scale.set(0.8, 0.8, 1.0); // shrink panel to fit FOV
+    panelGroup.scale.set(0.7, 0.7, 1.0); // shrink panel to fit FOV
   }
   return panelGroup;
 }
@@ -476,8 +476,16 @@ function onSelectStart() {
     const label = target.userData.label;
     console.log('[UI] action click', label);
     controlChannel.send(JSON.stringify({ type: 'action', name: label }));
-    target.material.color = new THREE.Color(0x00aa00);
-    setTimeout(() => target.material.color = new THREE.Color(0xffffff), 300);
+    // highlight the triggered action more visibly
+    try {
+      const original = target.material.color.clone();
+      target.material.color = new THREE.Color(0xffaa00);
+      target.scale.set(1.05 * target.scale.x, 1.05 * target.scale.y, 1.0);
+      setTimeout(() => {
+        target.material.color = original;
+        target.scale.set(1.0, 1.0, 1.0);
+      }, 450);
+    } catch {}
   }
 }
 
