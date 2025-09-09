@@ -727,6 +727,8 @@ function updateLidarPoints(buffer) {
     const cap = count;
     const boxGeo = new THREE.BoxGeometry(lidarCubeSize, lidarCubeSize, lidarCubeSize);
     const boxMat = new THREE.MeshBasicMaterial({ vertexColors: true });
+    boxMat.depthTest = true;
+    boxMat.depthWrite = true;
     lidarCubes = new THREE.InstancedMesh(boxGeo, boxMat, cap);
     lidarCubes.userData.capacity = cap;
     lidarCubes.count = count;
@@ -737,7 +739,13 @@ function updateLidarPoints(buffer) {
   } else {
     lidarCubes.count = count;
   }
-  const col = new THREE.Color();
+  // Ensure instanceColor attribute exists and sized
+  if (!lidarCubes.instanceColor || (lidarCubes.instanceColor.count || 0) < count) {
+    try {
+      lidarCubes.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(count * 3), 3);
+    } catch {}
+  }
+  const icArr = lidarCubes.instanceColor ? lidarCubes.instanceColor.array : null;
   for (let i = 0; i < count; i++) {
     const px = dst[3*i + 0];
     const py = dst[3*i + 1];
@@ -746,8 +754,11 @@ function updateLidarPoints(buffer) {
     _cubeDummy.rotation.set(0, 0, 0);
     _cubeDummy.updateMatrix();
     lidarCubes.setMatrixAt(i, _cubeDummy.matrix);
-    col.setRGB(cArr[3*i + 0] || 1, cArr[3*i + 1] || 1, cArr[3*i + 2] || 1);
-    if (lidarCubes.setColorAt) lidarCubes.setColorAt(i, col);
+    if (icArr) {
+      icArr[3*i + 0] = cArr[3*i + 0] || 1;
+      icArr[3*i + 1] = cArr[3*i + 1] || 1;
+      icArr[3*i + 2] = cArr[3*i + 2] || 1;
+    }
   }
   lidarCubes.instanceMatrix.needsUpdate = true;
   if (lidarCubes.instanceColor) lidarCubes.instanceColor.needsUpdate = true;
