@@ -741,14 +741,25 @@ function updateLidarPoints(buffer) {
     lidarCubes.userData.capacity = cap;
     lidarCubes.count = count;
     lidarCubes.renderOrder = 3;
-    // Explicitly allocate per-instance color buffer
-    try { lidarCubes.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(cap * 3), 3); } catch {}
+    // Explicitly allocate per-instance color buffer and bind to geometry
+    try {
+      lidarCubes.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(cap * 3), 3);
+      lidarCubes.geometry.setAttribute('instanceColor', lidarCubes.instanceColor);
+    } catch {}
     lidarGroup.add(lidarCubes);
     // Hide points since we're using cubes
     if (lidarPoints) lidarPoints.visible = false;
   } else {
     lidarCubes.count = count;
   }
+  // Ensure instanceColor has enough capacity and is bound
+  if (!lidarCubes.instanceColor || (lidarCubes.instanceColor.count || 0) < count) {
+    try {
+      lidarCubes.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(count * 3), 3);
+      lidarCubes.geometry.setAttribute('instanceColor', lidarCubes.instanceColor);
+    } catch {}
+  }
+  const icArr = lidarCubes.instanceColor ? lidarCubes.instanceColor.array : null;
   const col = new THREE.Color();
   for (let i = 0; i < count; i++) {
     const px = dst[3*i + 0];
@@ -763,11 +774,13 @@ function updateLidarPoints(buffer) {
     let b = cArr[3*i + 2]; if (!(b >= 0)) b = 1;
     // Prevent fully black due to precision by lifting very low values
     const floor = 0.06; if (r < floor && g < floor && b < floor) { r = floor; g = floor; b = floor; }
-    col.setRGB(r, g, b);
-    if (lidarCubes.setColorAt) lidarCubes.setColorAt(i, col);
+    if (icArr) {
+      icArr[3*i + 0] = r;
+      icArr[3*i + 1] = g;
+      icArr[3*i + 2] = b;
+    }
   }
   lidarCubes.instanceMatrix.needsUpdate = true;
-  // In three r160+, setColorAt writes to internal instance color; mark needsUpdate on instanceColor if present
   if (lidarCubes.instanceColor) lidarCubes.instanceColor.needsUpdate = true;
 }
 
