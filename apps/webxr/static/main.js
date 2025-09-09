@@ -31,6 +31,10 @@ let lastMoveSent = 0;
 const moveIntervalMs = 80; // ~12.5 Hz to reduce spam
 const deadzone = 0.08;
 
+// Joystick button state (for logging/demo)
+let lastButtonsSentAt = 0;
+let lastButtonsState = { left: [], right: [] };
+
 function dz(v) { return Math.abs(v) < deadzone ? 0 : v; }
 
 // Debug UI helpers
@@ -349,6 +353,30 @@ function sendMoveIfNeeded() {
   }
 }
 
+function readButtons(controller) {
+  try {
+    const gp = controller?.inputSource?.gamepad;
+    if (!gp || !gp.buttons) return [];
+    return gp.buttons.map(b => ({ pressed: !!b.pressed, touched: !!b.touched, value: Number(b.value || 0) }));
+  } catch { return []; }
+}
+
+function sendButtonsIfNeeded() {
+  if (!controlChannel || controlChannel.readyState !== 'open') return;
+  const now = performance.now();
+  if (now - lastButtonsSentAt < 150) return; // ~6-7 Hz
+  const lb = readButtons(leftController);
+  const rb = readButtons(rightController);
+  const changed = JSON.stringify(lb) !== JSON.stringify(lastButtonsState.left) || JSON.stringify(rb) !== JSON.stringify(lastButtonsState.right);
+  if (changed) {
+    try {
+      controlChannel.send(JSON.stringify({ type: 'joy_buttons', left: lb, right: rb }));
+    } catch {}
+    lastButtonsState = { left: lb, right: rb };
+    lastButtonsSentAt = now;
+  }
+}
+
 function ensureLidarScene() {
   if (lidarPoints) return;
   lidarGeometry = new THREE.BufferGeometry();
@@ -448,6 +476,7 @@ function updateLidarPoints(buffer) {
 
 function onXRFrame() {
   sendMoveIfNeeded();
+  sendButtonsIfNeeded();
   if (videoTexture) videoTexture.needsUpdate = true;
   // Update joystick debug arrows when VR Debug is ON
   if (vrDebugEnabled) {

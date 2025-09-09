@@ -57,6 +57,10 @@ class RobotVRServer:
         # Robot state cache (for assistant context)
         self.latest_state: Dict[str, Any] | None = None
 
+        # Joystick logging state
+        self._move_rx_count: int = 0
+        self._move_last_log_ts: float = 0.0
+
     # ---------------- Robot side -----------------
     async def start_robot(self) -> None:
         method_map = {
@@ -492,7 +496,14 @@ class RobotVRServer:
                 x = float(data.get("x", 0.0))
                 y = float(data.get("y", 0.0))
                 yaw = float(data.get("yaw", 0.0))
-                logger.debug(f"recv move: x={x:.3f} y={y:.3f} yaw={yaw:.3f}")
+                try:
+                    now_ts = time.time()
+                    self._move_rx_count += 1
+                    if self._move_rx_count <= 5 or (now_ts - self._move_last_log_ts) >= 0.5:
+                        logger.info("Joystick move: x=%.3f y=%.3f yaw=%.3f", x, y, yaw)
+                        self._move_last_log_ts = now_ts
+                except Exception:
+                    pass
                 asyncio.create_task(self._handle_move(x, y, yaw))
                 # Debug ACK
                 try:
@@ -512,6 +523,27 @@ class RobotVRServer:
             elif t == "toggle_obstacle":
                 logger.info("recv toggle_obstacle")
                 asyncio.create_task(self._handle_toggle_obstacle())
+            elif t == "joy_buttons":
+                # {type: 'joy_buttons', left: [...], right: [...]}
+                try:
+                    ls = data.get("left")
+                    rs = data.get("right")
+                    # Summarize pressed buttons for concise logging
+                    def pressed_idx(arr: Any) -> List[int]:
+                        out: List[int] = []
+                        if isinstance(arr, list):
+                            for i, b in enumerate(arr):
+                                try:
+                                    if (isinstance(b, dict) and bool(b.get("pressed"))) or (hasattr(b, "get") and bool(b.get("pressed"))):
+                                        out.append(i)
+                                except Exception:
+                                    pass
+                        return out
+                    lpi = pressed_idx(ls)
+                    rpi = pressed_idx(rs)
+                    logger.info("Joystick buttons: left pressed=%s right pressed=%s", lpi, rpi)
+                except Exception:
+                    pass
 
     def _setup_lidar_channel(self, dc) -> None:
         self.lidar_channels.append(dc)
