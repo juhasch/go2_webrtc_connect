@@ -21,6 +21,10 @@ let debugCanvas = null;
 let debugCtx = null;
 let debugTexture = null;
 let debugHUDMesh = null;
+function getActiveCamera() {
+  try { if (renderer && renderer.xr && renderer.xr.isPresenting) return renderer.xr.getCamera(); } catch {}
+  return camera;
+}
 // VR debug visuals
 let vrDebugEnabled = false;
 let hudMesh = null;        // camera-attached HUD plane
@@ -224,11 +228,15 @@ function ensureVideoHUD() {
     const geo = new THREE.PlaneGeometry(1.6, 0.9);
     videoHUDMesh = new THREE.Mesh(geo, mat);
     videoHUDMesh.name = 'videoHUD';
-    videoHUDMesh.renderOrder = 998;
+    videoHUDMesh.renderOrder = 9999;
   }
-  if (videoHUDMesh.parent !== camera) {
-    camera.add(videoHUDMesh);
-    videoHUDMesh.position.set(0, 0, -1.6);
+  const cam = getActiveCamera();
+  if (videoHUDMesh.parent !== cam) {
+    try { if (videoHUDMesh.parent) videoHUDMesh.parent.remove(videoHUDMesh); } catch {}
+    cam.add(videoHUDMesh);
+    videoHUDMesh.position.set(0, 0, -1.2);
+    videoHUDMesh.rotation.set(0, 0, 0);
+    videoHUDMesh.visible = true;
   }
   return videoHUDMesh;
 }
@@ -248,11 +256,13 @@ function ensureDebugHUD() {
     const geo = new THREE.PlaneGeometry(1.3, 0.65);
     debugHUDMesh = new THREE.Mesh(geo, mat);
     debugHUDMesh.name = 'debugHUD';
-    debugHUDMesh.renderOrder = 999;
+    debugHUDMesh.renderOrder = 9999;
   }
-  if (debugHUDMesh.parent !== camera) {
-    camera.add(debugHUDMesh);
-    debugHUDMesh.position.set(-0.85, 0.65, -1.1);
+  const cam = getActiveCamera();
+  if (debugHUDMesh.parent !== cam) {
+    try { if (debugHUDMesh.parent) debugHUDMesh.parent.remove(debugHUDMesh); } catch {}
+    cam.add(debugHUDMesh);
+    debugHUDMesh.position.set(-0.85, 0.65, -1.0);
     debugHUDMesh.rotation.set(0, 0, 0);
     debugHUDMesh.visible = true;
   }
