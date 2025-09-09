@@ -64,6 +64,8 @@ const debugState = {
   lidarPoints: 0,
   leftAxes: [],
   rightAxes: [],
+  leftButtons: [],
+  rightButtons: [],
   move: { x: 0, y: 0, yaw: 0 },
   pcRotate: false,
 };
@@ -82,6 +84,10 @@ function updateDebug() {
   const ra = dbgFmtAxes(debugState.rightAxes);
   lines.push(`Left axes:  ${la}`);
   lines.push(`Right axes: ${ra}`);
+  const lb = dbgFmtButtons(debugState.leftButtons);
+  const rb = dbgFmtButtons(debugState.rightButtons);
+  lines.push(`Left buttons:  ${lb}`);
+  lines.push(`Right buttons: ${rb}`);
   const m = debugState.move;
   lines.push(`Move (x,y,yaw): ${m.x.toFixed(3)}, ${m.y.toFixed(3)}, ${m.yaw.toFixed(3)}`);
   lines.push(`VR Debug: ${debugState.vrdbg ? 'ON' : 'off'}`);
@@ -108,6 +114,22 @@ function updateDebug() {
 function dbgFmtAxes(a) {
   if (!a || a.length === 0) return '[]';
   return '[' + a.map(v => (Math.abs(v) < 0.001 ? ' 0.000' : (v>0?'+':'') + v.toFixed(3))).join(', ') + ']';
+}
+
+function dbgFmtButtons(arr) {
+  try {
+    if (!Array.isArray(arr) || arr.length === 0) return '[]';
+    const pressed = [];
+    const touched = [];
+    const values = [];
+    arr.forEach((b, i) => {
+      if (!b) return;
+      if (b.pressed) pressed.push(i);
+      if (b.touched) touched.push(i);
+      if (b.value && Math.abs(b.value) > 0.01) values.push(`${i}:${Number(b.value).toFixed(2)}`);
+    });
+    return `P=[${pressed.join(',')}] T=[${touched.join(',')}] V=[${values.join(',')}]`;
+  } catch { return '[]'; }
 }
 
 async function setupThree() {
@@ -571,6 +593,8 @@ function sendButtonsIfNeeded() {
   if (now - lastButtonsSentAt < 150) return; // ~6-7 Hz
   const lb = readButtonsForHand('left', leftController);
   const rb = readButtonsForHand('right', rightController);
+  debugState.leftButtons = lb;
+  debugState.rightButtons = rb;
   const changed = JSON.stringify(lb) !== JSON.stringify(lastButtonsState.left) || JSON.stringify(rb) !== JSON.stringify(lastButtonsState.right);
   if (changed) {
     try {
@@ -578,6 +602,7 @@ function sendButtonsIfNeeded() {
     } catch {}
     lastButtonsState = { left: lb, right: rb };
     lastButtonsSentAt = now;
+    updateDebug();
   }
 }
 
