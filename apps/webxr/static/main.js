@@ -90,7 +90,7 @@ function updateDebug() {
   if (debugCtx && debugTexture && debugCanvas) {
     const W = debugCanvas.width, H = debugCanvas.height;
     debugCtx.clearRect(0, 0, W, H);
-    debugCtx.fillStyle = 'rgba(0,0,0,0.55)';
+    debugCtx.fillStyle = 'rgba(0,0,0,0.25)';
     debugCtx.fillRect(0, 0, W, H);
     debugCtx.fillStyle = '#00ff00';
     debugCtx.font = '22px monospace';
@@ -127,7 +127,7 @@ async function setupThree() {
     renderer.xr.addEventListener('sessionstart', () => {
       if (videoMesh) videoMesh.visible = false; // hide world screen in VR
       if (videoTexture) ensureVideoHUD();
-      if (videoHUDMesh) videoHUDMesh.visible = true;
+      if (videoHUDMesh) videoHUDMesh.visible = (debugState.video === 'playing');
       ensureHudGroup();
       ensureDebugHUD();
       if (hudGroup) hudGroup.visible = true;
@@ -260,7 +260,7 @@ function ensureDebugHUD() {
     const mat = new THREE.MeshBasicMaterial({ map: debugTexture, transparent: true, color: 0xffffff });
     mat.depthWrite = false;
     mat.depthTest = false;
-    const geo = new THREE.PlaneGeometry(1.6, 0.8);
+    const geo = new THREE.PlaneGeometry(1.2, 0.6);
     debugHUDMesh = new THREE.Mesh(geo, mat);
     debugHUDMesh.name = 'debugHUD';
     debugHUDMesh.renderOrder = 9999;
@@ -269,7 +269,7 @@ function ensureDebugHUD() {
   if (debugHUDMesh.parent !== hudGroup) {
     try { if (debugHUDMesh.parent) debugHUDMesh.parent.remove(debugHUDMesh); } catch {}
     hudGroup.add(debugHUDMesh);
-    debugHUDMesh.position.set(-0.9, 0.75, 0);
+    debugHUDMesh.position.set(0.0, -0.25, 0);
     debugHUDMesh.rotation.set(0, 0, 0);
     debugHUDMesh.visible = true;
   }
@@ -768,7 +768,11 @@ async function connectWebRTC() {
       videoEl.autoplay = true;
       videoEl.muted = true;
       videoEl.playsInline = true;
-      videoEl.addEventListener('playing', () => { debugState.video = 'playing'; updateDebug(); });
+      videoEl.addEventListener('playing', () => {
+        debugState.video = 'playing';
+        updateDebug();
+        try { if (videoHUDMesh) videoHUDMesh.visible = true; } catch {}
+      });
       videoEl.addEventListener('loadedmetadata', () => { debugState.videoDims = `${videoEl.videoWidth}x${videoEl.videoHeight}`; updateDebug(); });
     }
     videoEl.srcObject = ev.streams[0];
@@ -787,7 +791,7 @@ async function connectWebRTC() {
         if (hud) {
           hud.material.map = videoTexture;
           hud.material.needsUpdate = true;
-          hud.visible = true;
+          hud.visible = (debugState.video === 'playing');
         }
         ensureHudGroup();
       }
