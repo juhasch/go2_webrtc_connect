@@ -824,21 +824,32 @@ async function connectWebRTC() {
       });
       videoEl.addEventListener('loadedmetadata', () => { debugState.videoDims = `${videoEl.videoWidth}x${videoEl.videoHeight}`; updateDebug(); });
     }
-    videoEl.srcObject = ev.streams[0];
+    // Use the preview <video> as the playback source to ensure frames are flowing
     if (previewEl && !previewEl.srcObject) previewEl.srcObject = ev.streams[0];
+    if (previewEl && previewEl.srcObject) {
+      videoEl = previewEl;
+    } else {
+      videoEl.srcObject = ev.streams[0];
+    }
     // Create texture and assign to screen
     videoTexture = new THREE.VideoTexture(videoEl);
-    try { videoTexture.colorSpace = THREE.SRGBColorSpace; } catch {}
+    try {
+      if (THREE && THREE.NoColorSpace) {
+        // three r160+ renamed color spaces; allow default
+      } else if (THREE && THREE.SRGBColorSpace) {
+        videoTexture.colorSpace = THREE.SRGBColorSpace;
+      }
+    } catch {}
     videoTexture.minFilter = THREE.LinearFilter;
     videoTexture.magFilter = THREE.LinearFilter;
-    // Replace world screen material with an opaque video material
+    // Map video onto existing world screen material
     try {
-      const screenMat = new THREE.MeshBasicMaterial({ map: videoTexture, side: THREE.DoubleSide, transparent: false, opacity: 1.0 });
-      screenMat.depthWrite = false;
-      screenMat.depthTest = false; // draw over LiDAR points
-      videoMesh.material = screenMat;
-      videoMesh.renderOrder = 10000;
+      videoMesh.material.map = videoTexture;
+      videoMesh.material.transparent = false;
+      videoMesh.material.opacity = 1.0;
       videoMesh.material.needsUpdate = true;
+      // Keep normal depth for proper scene blending
+      videoMesh.renderOrder = 1;
     } catch {}
     // Bind texture to HUD in XR if active
     try {
