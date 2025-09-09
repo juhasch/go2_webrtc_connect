@@ -9,6 +9,7 @@ let lidarChannel = null;
 let lidarPoints = null;
 let lidarGeometry = null;
 let pointerRight = null;
+let lidarGroup = null;      // container for LiDAR transform (rotation/pos)
 
 let videoEl = null;
 let videoMesh = null;
@@ -48,6 +49,7 @@ const debugState = {
   leftAxes: [],
   rightAxes: [],
   move: { x: 0, y: 0, yaw: 0 },
+  pcRotate: false,
 };
 
 function initDebug() {
@@ -68,6 +70,7 @@ function updateDebug() {
   const m = debugState.move;
   lines.push(`Move (x,y,yaw): ${m.x.toFixed(3)}, ${m.y.toFixed(3)}, ${m.yaw.toFixed(3)}`);
   lines.push(`VR Debug: ${debugState.vrdbg ? 'ON' : 'off'}`);
+  lines.push(`PC Rotate: ${debugState.pcRotate ? 'ON' : 'off'} (toggle: B)`);
   debugEl.textContent = lines.join('\n');
 }
 
@@ -128,6 +131,7 @@ async function setupThree() {
   rightController.addEventListener('selectstart', onSelectStart);
 
   window.addEventListener('resize', onWindowResize);
+  window.addEventListener('keydown', onKeyDown);
 
   renderer.setAnimationLoop(onXRFrame);
 
@@ -139,6 +143,24 @@ async function setupThree() {
   previewEl = document.getElementById('preview');
   const debugBtn = document.getElementById('debugBtn');
   if (debugBtn) debugBtn.addEventListener('click', toggleVRDebug);
+}
+
+// Keyboard controls
+let pcRotateMode = false;
+let pcYaw = 0;    // radians
+let pcPitch = 0;  // radians
+const PC_PITCH_MIN = -1.3, PC_PITCH_MAX = 1.3;
+const PC_ROT_SPEED = 2.2; // rad/sec per full deflection
+let RIGHT_B_INDEX = 1; // heuristic default; can override via ?rb=idx
+let _prevRightB = false;
+
+function onKeyDown(e) {
+  const k = (e.key || '').toLowerCase();
+  if (k === 'b') {
+    pcRotateMode = !pcRotateMode;
+    debugState.pcRotate = pcRotateMode;
+    updateDebug();
+  }
 }
 
 function ensureVideoMaterial() {
@@ -315,8 +337,27 @@ function getHandAxes(hand, fallbackController) {
   } catch { return []; }
 }
 
+function getStickXYForRotation(hand, fallbackController) {
+  const a = getHandAxes(hand, fallbackController);
+  // Prefer [2,3] if available (often right stick in XR), else [0,1]
+  let ax = 0, ay = 0;
+  if (a.length >= 4) { ax = Number(a[2] || 0); ay = Number(a[3] || 0); }
+  else { ax = Number(a[0] || 0); ay = Number(a[1] || 0); }
+  return { x: dz(ax), y: dz(ay) };
+}
+
+function isRightButtonPressed(idx) {
+  try {
+    const gp = getGamepadForHand('right') || (rightController?.inputSource?.gamepad || null);
+    if (!gp || !gp.buttons || idx < 0 || idx >= gp.buttons.length) return false;
+    const b = gp.buttons[idx];
+    return !!(b && (b.pressed || (b.value && b.value > 0.5)));
+  } catch { return false; }
+}
+
 function sendMoveIfNeeded() {
   if (!controlChannel || controlChannel.readyState !== 'open') return;
+  if (pcRotateMode) return; // don't move robot while rotating point cloud
   const now = performance.now();
   if (now - lastMoveSent < moveIntervalMs) return;
 
@@ -379,6 +420,11 @@ function sendButtonsIfNeeded() {
 
 function ensureLidarScene() {
   if (lidarPoints) return;
+  if (!lidarGroup) {
+    lidarGroup = new THREE.Group();
+    lidarGroup.position.set(0, 0, -2.0);
+    scene.add(lidarGroup);
+  }
   lidarGeometry = new THREE.BufferGeometry();
   const positions = new Float32Array(3); // will grow dynamically
   lidarGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
@@ -387,9 +433,8 @@ function ensureLidarScene() {
   lidarGeometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
   const material = new THREE.PointsMaterial({ size: 0.03, sizeAttenuation: true, vertexColors: true });
   lidarPoints = new THREE.Points(lidarGeometry, material);
-  lidarPoints.position.set(0, 0, -2.0);
   lidarPoints.renderOrder = 2;
-  scene.add(lidarPoints);
+  lidarGroup.add(lidarPoints);
 }
 
 function updateLidarPoints(buffer) {
@@ -474,8 +519,33 @@ function updateLidarPoints(buffer) {
   lidarGeometry.computeBoundingSphere();
 }
 
-function onXRFrame() {
-  sendMoveIfNeeded();
+let _lastXRTime = 0;
+function onXRFrame(time) {
+  const t = typeof time === 'number' ? time : performance.now();
+  const dt = Math.max(0, Math.min(0.05, (t - (_lastXRTime || t)) / 1000));
+  _lastXRTime = t;
+
+  if (pcRotateMode && lidarGroup) {
+    // Use right stick to rotate point cloud (yaw/pitch)
+    const rs = getStickXYForRotation('right', rightController);
+    pcYaw += rs.x * PC_ROT_SPEED * dt;
+    pcPitch += -rs.y * PC_ROT_SPEED * dt;
+    if (pcPitch < PC_PITCH_MIN) pcPitch = PC_PITCH_MIN;
+    if (pcPitch > PC_PITCH_MAX) pcPitch = PC_PITCH_MAX;
+    lidarGroup.rotation.set(pcPitch, pcYaw, 0);
+  } else {
+    sendMoveIfNeeded();
+  }
+
+  // Toggle rotate mode on B button (rising edge)
+  const rbPressed = isRightButtonPressed(RIGHT_B_INDEX);
+  if (rbPressed && !_prevRightB) {
+    pcRotateMode = !pcRotateMode;
+    debugState.pcRotate = pcRotateMode;
+    updateDebug();
+  }
+  _prevRightB = rbPressed;
+
   sendButtonsIfNeeded();
   if (videoTexture) videoTexture.needsUpdate = true;
   // Update joystick debug arrows when VR Debug is ON
@@ -598,6 +668,11 @@ async function connectWebRTC() {
 (async function main() {
   await setupThree();
   await connectWebRTC();
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const rb = parseInt(params.get('rb') || '', 10);
+    if (!Number.isNaN(rb) && rb >= 0) RIGHT_B_INDEX = rb;
+  } catch {}
 })();
 
 // ================= Optional Voice Assistant (OpenAI Realtime) =================
