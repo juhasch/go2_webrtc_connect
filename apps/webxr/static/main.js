@@ -209,6 +209,8 @@ const PC_PITCH_MIN = -1.3, PC_PITCH_MAX = 1.3;
 const PC_ROT_SPEED = 2.2; // rad/sec per full deflection
 let RIGHT_B_INDEX = 1; // heuristic default; can override via ?rb=idx
 let _prevRightB = false;
+let RIGHT_PANEL_INDEX = 0; // default A button for panel toggle; override via ?rp=idx
+let _prevRightPanel = false;
 
 function onKeyDown(e) {
   const k = (e.key || '').toLowerCase();
@@ -426,6 +428,7 @@ function ensureControlPanelGroup() {
     panelGroup.renderOrder = 9999;
     hudGroup.add(panelGroup);
     panelGroup.position.set(0, -0.02, 0);
+    panelGroup.scale.set(0.8, 0.8, 1.0); // shrink panel to fit FOV
   }
   return panelGroup;
 }
@@ -706,6 +709,13 @@ function onXRFrame(time) {
   }
   _prevRightB = rbPressed;
 
+  // Toggle control panel on A button (right controller) rising edge
+  const rpPressed = isRightButtonPressed(RIGHT_PANEL_INDEX);
+  if (rpPressed && !_prevRightPanel) {
+    try { ensureControlPanelGroup(); panelGroup.visible = !panelGroup.visible; } catch {}
+  }
+  _prevRightPanel = rpPressed;
+
   sendButtonsIfNeeded();
   if (videoTexture) videoTexture.needsUpdate = true;
   // Keep HUD group aligned with active XR camera
@@ -875,6 +885,8 @@ async function connectWebRTC() {
     const params = new URLSearchParams(window.location.search);
     const rb = parseInt(params.get('rb') || '', 10);
     if (!Number.isNaN(rb) && rb >= 0) RIGHT_B_INDEX = rb;
+    const rp = parseInt(params.get('rp') || '', 10);
+    if (!Number.isNaN(rp) && rp >= 0) RIGHT_PANEL_INDEX = rp;
   } catch {}
 })();
 
