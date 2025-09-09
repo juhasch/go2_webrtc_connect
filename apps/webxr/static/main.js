@@ -16,6 +16,11 @@ let videoMesh = null;
 let videoTexture = null;
 let previewEl = null;
 let videoHUDMesh = null;    // camera-attached video plane for VR
+// In-VR debug HUD (canvas texture)
+let debugCanvas = null;
+let debugCtx = null;
+let debugTexture = null;
+let debugHUDMesh = null;
 // VR debug visuals
 let vrDebugEnabled = false;
 let hudMesh = null;        // camera-attached HUD plane
@@ -73,6 +78,22 @@ function updateDebug() {
   lines.push(`VR Debug: ${debugState.vrdbg ? 'ON' : 'off'}`);
   lines.push(`PC Rotate: ${debugState.pcRotate ? 'ON' : 'off'} (toggle: B)`);
   debugEl.textContent = lines.join('\n');
+
+  // Mirror into VR HUD canvas
+  if (debugCtx && debugTexture && debugCanvas) {
+    const W = debugCanvas.width, H = debugCanvas.height;
+    debugCtx.clearRect(0, 0, W, H);
+    debugCtx.fillStyle = 'rgba(0,0,0,0.55)';
+    debugCtx.fillRect(0, 0, W, H);
+    debugCtx.fillStyle = '#00ff00';
+    debugCtx.font = '22px monospace';
+    debugCtx.textBaseline = 'top';
+    const lh = 24;
+    for (let i = 0; i < lines.length; i++) {
+      debugCtx.fillText(lines[i], 10, 8 + i * lh);
+    }
+    debugTexture.needsUpdate = true;
+  }
 }
 
 function dbgFmtAxes(a) {
@@ -100,10 +121,13 @@ async function setupThree() {
       if (videoMesh) videoMesh.visible = false; // hide world screen in VR
       if (videoTexture) ensureVideoHUD();
       if (videoHUDMesh) videoHUDMesh.visible = true;
+      ensureDebugHUD();
+      if (debugHUDMesh) debugHUDMesh.visible = true;
     });
     renderer.xr.addEventListener('sessionend', () => {
       if (videoMesh) videoMesh.visible = true;
       if (videoHUDMesh) videoHUDMesh.visible = false;
+      if (debugHUDMesh) debugHUDMesh.visible = false;
     });
   } catch {}
 
@@ -157,6 +181,8 @@ async function setupThree() {
   previewEl = document.getElementById('preview');
   const debugBtn = document.getElementById('debugBtn');
   if (debugBtn) debugBtn.addEventListener('click', toggleVRDebug);
+  // Prepare VR debug HUD once
+  ensureDebugHUD();
 }
 
 // Keyboard controls
@@ -206,6 +232,32 @@ function ensureVideoHUD() {
     videoHUDMesh.position.set(0, 0, -1.6);
   }
   return videoHUDMesh;
+}
+
+function ensureDebugHUD() {
+  if (!debugCanvas) {
+    debugCanvas = document.createElement('canvas');
+    debugCanvas.width = 1024; // crisp text
+    debugCanvas.height = 512;
+    debugCtx = debugCanvas.getContext('2d');
+    debugTexture = new THREE.CanvasTexture(debugCanvas);
+  }
+  if (!debugHUDMesh) {
+    const mat = new THREE.MeshBasicMaterial({ map: debugTexture, transparent: true });
+    mat.depthWrite = false;
+    mat.depthTest = false;
+    const geo = new THREE.PlaneGeometry(1.3, 0.65);
+    debugHUDMesh = new THREE.Mesh(geo, mat);
+    debugHUDMesh.name = 'debugHUD';
+    debugHUDMesh.renderOrder = 999;
+  }
+  if (debugHUDMesh.parent !== camera) {
+    camera.add(debugHUDMesh);
+    debugHUDMesh.position.set(-0.85, 0.7, -1.3);
+  }
+  // Initial draw
+  updateDebug();
+  return debugHUDMesh;
 }
 
 function toggleVRDebug() {
@@ -397,12 +449,31 @@ function sendMoveIfNeeded() {
   // left stick → x/y; right stick X/2 → yaw
   const la = getHandAxes('left', leftController);
   const ra = getHandAxes('right', rightController);
-  const lax = Number(la[0] || 0), lay = Number(la[1] || 0);
-  let x = dz(-lay); // forward when pushing up
-  let y = dz(lax);
-  // Prefer right axes[2] for yaw if present (common on XR), else axes[0]
-  const ryaw = (typeof ra[2] === 'number') ? Number(ra[2]) : Number(ra[0] || 0);
-  let yaw = dz(ryaw);
+  // Extract best XY from each hand
+  const pickXY = (axes) => {
+    const a0 = Number(axes[0] || 0), a1 = Number(axes[1] || 0);
+    const a2 = Number(axes[2] || 0), a3 = Number(axes[3] || 0);
+    const m01 = Math.abs(a0) + Math.abs(a1);
+    const m23 = Math.abs(a2) + Math.abs(a3);
+    return (m23 > m01 + 0.02) ? { x: a2, y: a3, src: '23' } : { x: a0, y: a1, src: '01' };
+  };
+  const lxy = pickXY(la);
+  const rxy = pickXY(ra);
+  const lm = Math.abs(lxy.x) + Math.abs(lxy.y);
+  const rm = Math.abs(rxy.x) + Math.abs(rxy.y);
+  const useRightForXY = rm > lm + 0.02;
+  const xy = useRightForXY ? rxy : lxy;
+  let x = dz(-xy.y); // forward when pushing up
+  let y = dz(xy.x);
+  debugState.xyFrom = useRightForXY ? 'right' : 'left';
+  // Yaw: prefer right stick axis[2] if available, else right[0], else fallback to left
+  const yawFromAxes = (axes) => dz(typeof axes[2] === 'number' && Math.abs(axes[2]) > 0.01 ? Number(axes[2]) : Number(axes[0] || 0));
+  let yaw = dz(0);
+  let yawFrom = 'right';
+  const ry = yawFromAxes(ra);
+  if (Math.abs(ry) > 0.01) { yaw = ry; yawFrom = 'right'; }
+  else { yaw = yawFromAxes(la); yawFrom = 'left'; }
+  debugState.yawFrom = yawFrom;
 
   // Only send if significant change or a periodic keepalive
   const prev = sendMoveIfNeeded._prev || { x: 0, y: 0, yaw: 0 };
