@@ -21,7 +21,10 @@ let debugCanvas = null;
 let debugCtx = null;
 let debugTexture = null;
 let debugHUDMesh = null;
-let hudGroup = null;        // follows XR camera each frame
+let hudGroup = null;        // follows XR camera each frame (in scene)
+const _tmpPos = new THREE.Vector3();
+const _tmpQuat = new THREE.Quaternion();
+const _tmpDir = new THREE.Vector3();
 function getActiveCamera() {
   try { if (renderer && renderer.xr && renderer.xr.isPresenting) return renderer.xr.getCamera(); } catch {}
   return camera;
@@ -125,16 +128,16 @@ async function setupThree() {
       if (videoMesh) videoMesh.visible = false; // hide world screen in VR
       if (videoTexture) ensureVideoHUD();
       if (videoHUDMesh) videoHUDMesh.visible = true;
-      ensureDebugHUD();
-      if (debugHUDMesh) debugHUDMesh.visible = true;
       ensureHudGroup();
+      ensureDebugHUD();
       if (hudGroup) hudGroup.visible = true;
+      if (debugHUDMesh) debugHUDMesh.visible = true;
     });
     renderer.xr.addEventListener('sessionend', () => {
       if (videoMesh) videoMesh.visible = true;
       if (videoHUDMesh) videoHUDMesh.visible = false;
       if (debugHUDMesh) debugHUDMesh.visible = false;
-      if (hudGroup) hudGroup.visible = true; // still visible in non-VR (optional)
+      if (hudGroup) hudGroup.visible = true; // keep visible in non-VR
     });
   } catch {}
 
@@ -227,7 +230,7 @@ function ensureVideoHUD() {
   ensureHudGroup();
   if (!videoHUDMesh) {
     // Dedicated HUD material bound to the live VideoTexture
-    const mat = new THREE.MeshBasicMaterial({ map: videoTexture, side: THREE.DoubleSide });
+    const mat = new THREE.MeshBasicMaterial({ map: videoTexture, side: THREE.DoubleSide, color: 0xffffff });
     mat.depthWrite = false;
     mat.depthTest = false;
     const geo = new THREE.PlaneGeometry(1.6, 0.9);
@@ -238,7 +241,7 @@ function ensureVideoHUD() {
   if (videoHUDMesh.parent !== hudGroup) {
     try { if (videoHUDMesh.parent) videoHUDMesh.parent.remove(videoHUDMesh); } catch {}
     hudGroup.add(videoHUDMesh);
-    videoHUDMesh.position.set(0, 0, -1.2);
+    videoHUDMesh.position.set(0, 0, 0);
     videoHUDMesh.rotation.set(0, 0, 0);
     videoHUDMesh.visible = true;
   }
@@ -254,10 +257,10 @@ function ensureDebugHUD() {
     debugTexture = new THREE.CanvasTexture(debugCanvas);
   }
   if (!debugHUDMesh) {
-    const mat = new THREE.MeshBasicMaterial({ map: debugTexture, transparent: true });
+    const mat = new THREE.MeshBasicMaterial({ map: debugTexture, transparent: true, color: 0xffffff });
     mat.depthWrite = false;
     mat.depthTest = false;
-    const geo = new THREE.PlaneGeometry(1.3, 0.65);
+    const geo = new THREE.PlaneGeometry(1.6, 0.8);
     debugHUDMesh = new THREE.Mesh(geo, mat);
     debugHUDMesh.name = 'debugHUD';
     debugHUDMesh.renderOrder = 9999;
@@ -266,7 +269,7 @@ function ensureDebugHUD() {
   if (debugHUDMesh.parent !== hudGroup) {
     try { if (debugHUDMesh.parent) debugHUDMesh.parent.remove(debugHUDMesh); } catch {}
     hudGroup.add(debugHUDMesh);
-    debugHUDMesh.position.set(-0.85, 0.65, -1.0);
+    debugHUDMesh.position.set(-0.9, 0.75, 0);
     debugHUDMesh.rotation.set(0, 0, 0);
     debugHUDMesh.visible = true;
   }
@@ -281,11 +284,9 @@ function ensureHudGroup() {
     hudGroup = new THREE.Group();
     hudGroup.name = 'hudGroup';
     hudGroup.renderOrder = 9999;
+    scene.add(hudGroup);
   }
-  if (hudGroup.parent !== cam) {
-    try { if (hudGroup.parent) hudGroup.parent.remove(hudGroup); } catch {}
-    cam.add(hudGroup);
-  }
+  // Copy XR camera pose each frame in onXRFrame; here just ensure exists
   return hudGroup;
 }
 
@@ -676,7 +677,16 @@ function onXRFrame(time) {
   if (videoTexture) videoTexture.needsUpdate = true;
   // Keep HUD group aligned with active XR camera
   try {
-    if (renderer?.xr?.isPresenting) ensureHudGroup();
+    if (renderer?.xr?.isPresenting) {
+      const cam = getActiveCamera();
+      ensureHudGroup();
+      // Position hudGroup slightly in front of camera
+      cam.getWorldPosition(_tmpPos);
+      cam.getWorldQuaternion(_tmpQuat);
+      _tmpDir.set(0, 0, -1).applyQuaternion(_tmpQuat);
+      hudGroup.position.copy(_tmpPos).addScaledVector(_tmpDir, 1.0);
+      hudGroup.quaternion.copy(_tmpQuat);
+    }
   } catch {}
   // Update joystick debug arrows when VR Debug is ON
   if (vrDebugEnabled) {
