@@ -38,6 +38,8 @@ let yawArrow = null;       // shows yaw magnitude/direction
 
 let actions = [];
 let actionButtons = [];
+let panelGroup = null;      // VR control panel group (child of hudGroup)
+let panelBackground = null; // background plane for control panel
 const raycaster = new THREE.Raycaster();
 const tempMatrix = new THREE.Matrix4();
 
@@ -193,6 +195,10 @@ async function setupThree() {
   if (debugBtn) debugBtn.addEventListener('click', toggleVRDebug);
   // Prepare VR debug HUD once
   ensureDebugHUD();
+  // Prepare control panel and lay out default actions
+  ensureHudGroup();
+  ensureControlPanelGroup();
+  if (actions && actions.length) layoutActionButtons();
 }
 
 // Keyboard controls
@@ -371,30 +377,57 @@ function createTextButton(text, width = 0.5, height = 0.18) {
 }
 
 function layoutActionButtons() {
-  // Clear previous
-  for (const m of actionButtons) scene.remove(m);
+  ensureControlPanelGroup();
+  // Remove previous buttons
+  for (const m of actionButtons) { try { panelGroup.remove(m); } catch {} }
   actionButtons = [];
+  // Remove and recreate background
+  try { if (panelBackground) panelGroup.remove(panelBackground); } catch {}
+  panelBackground = null;
 
   const cols = 4;
-  const spacingX = 0.6;
-  const spacingY = 0.25;
+  const btnW = 0.5, btnH = 0.18;
+  const spacingX = 0.56;
+  const spacingY = 0.22;
   const startX = -((cols - 1) * spacingX) / 2;
   let row = 0, col = 0;
   for (const a of actions) {
-    const b = createTextButton(a);
-    b.position.set(startX + col * spacingX, 0.5 + (-row) * spacingY, -1.5);
-    scene.add(b);
+    const b = createTextButton(a, btnW, btnH);
+    b.position.set(startX + col * spacingX, 0.1 + (-row) * spacingY, 0);
+    panelGroup.add(b);
     actionButtons.push(b);
     col += 1;
     if (col >= cols) { col = 0; row += 1; }
   }
-
-  // Obstacle toggle button
-  const ob = createTextButton('Obstacle ON/OFF');
-  ob.position.set(0, -0.5 + (-row) * spacingY, -1.5);
+  // Obstacle toggle button at bottom
+  const ob = createTextButton('Obstacle ON/OFF', btnW, btnH);
+  ob.position.set(0, 0.1 + (-row) * spacingY, 0);
   ob.userData.toggleObstacle = true;
-  scene.add(ob);
+  panelGroup.add(ob);
   actionButtons.push(ob);
+
+  // Background plane sized to content
+  const rows = row + (col > 0 ? 1 : 0) + 1; // include toggle row
+  const bgW = cols * spacingX + 0.35;
+  const bgH = rows * spacingY + 0.32;
+  const bgGeo = new THREE.PlaneGeometry(bgW, bgH);
+  const bgMat = new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.25, depthWrite: false, depthTest: false, side: THREE.DoubleSide });
+  panelBackground = new THREE.Mesh(bgGeo, bgMat);
+  panelBackground.position.set(0, (0.1 - (rows - 1) * spacingY) / 2, -0.001);
+  panelBackground.renderOrder = 9998;
+  panelGroup.add(panelBackground);
+}
+
+function ensureControlPanelGroup() {
+  ensureHudGroup();
+  if (!panelGroup) {
+    panelGroup = new THREE.Group();
+    panelGroup.name = 'controlPanel';
+    panelGroup.renderOrder = 9999;
+    hudGroup.add(panelGroup);
+    panelGroup.position.set(0, -0.02, 0);
+  }
+  return panelGroup;
 }
 
 function onSelectStart() {
@@ -739,7 +772,8 @@ async function connectWebRTC() {
     try {
       const msg = JSON.parse(mev.data);
       if (msg.type === 'actions') {
-        actions = msg.actions || [];
+        // Prefer server-provided list, else use fallback below
+        actions = (msg.actions && msg.actions.length) ? msg.actions : actions;
         layoutActionButtons();
         updateRealtimeTools();
       } else if (msg.type === 'ping') {
@@ -829,6 +863,14 @@ async function connectWebRTC() {
 (async function main() {
   await setupThree();
   await connectWebRTC();
+  // Fallback actions if server list hasn't arrived yet
+  if (!actions || actions.length === 0) {
+    actions = [
+      'BackFlip','Content','Dance1','Dance2','FrontFlip','FrontJump','FrontPounce','Handstand',
+      'Heart','Hello','LeftFlip','RecoveryStand','RiseSit','Scrape','Sit','StandDown','StandUp','Stretch'
+    ];
+    layoutActionButtons();
+  }
   try {
     const params = new URLSearchParams(window.location.search);
     const rb = parseInt(params.get('rb') || '', 10);
