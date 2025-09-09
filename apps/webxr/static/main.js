@@ -21,6 +21,7 @@ let debugCanvas = null;
 let debugCtx = null;
 let debugTexture = null;
 let debugHUDMesh = null;
+let hudGroup = null;        // follows XR camera each frame
 function getActiveCamera() {
   try { if (renderer && renderer.xr && renderer.xr.isPresenting) return renderer.xr.getCamera(); } catch {}
   return camera;
@@ -126,11 +127,14 @@ async function setupThree() {
       if (videoHUDMesh) videoHUDMesh.visible = true;
       ensureDebugHUD();
       if (debugHUDMesh) debugHUDMesh.visible = true;
+      ensureHudGroup();
+      if (hudGroup) hudGroup.visible = true;
     });
     renderer.xr.addEventListener('sessionend', () => {
       if (videoMesh) videoMesh.visible = true;
       if (videoHUDMesh) videoHUDMesh.visible = false;
       if (debugHUDMesh) debugHUDMesh.visible = false;
+      if (hudGroup) hudGroup.visible = true; // still visible in non-VR (optional)
     });
   } catch {}
 
@@ -220,6 +224,7 @@ function ensureVideoMaterial() {
 
 function ensureVideoHUD() {
   if (!videoTexture) return null;
+  ensureHudGroup();
   if (!videoHUDMesh) {
     // Dedicated HUD material bound to the live VideoTexture
     const mat = new THREE.MeshBasicMaterial({ map: videoTexture, side: THREE.DoubleSide });
@@ -230,10 +235,9 @@ function ensureVideoHUD() {
     videoHUDMesh.name = 'videoHUD';
     videoHUDMesh.renderOrder = 9999;
   }
-  const cam = getActiveCamera();
-  if (videoHUDMesh.parent !== cam) {
+  if (videoHUDMesh.parent !== hudGroup) {
     try { if (videoHUDMesh.parent) videoHUDMesh.parent.remove(videoHUDMesh); } catch {}
-    cam.add(videoHUDMesh);
+    hudGroup.add(videoHUDMesh);
     videoHUDMesh.position.set(0, 0, -1.2);
     videoHUDMesh.rotation.set(0, 0, 0);
     videoHUDMesh.visible = true;
@@ -258,10 +262,10 @@ function ensureDebugHUD() {
     debugHUDMesh.name = 'debugHUD';
     debugHUDMesh.renderOrder = 9999;
   }
-  const cam = getActiveCamera();
-  if (debugHUDMesh.parent !== cam) {
+  ensureHudGroup();
+  if (debugHUDMesh.parent !== hudGroup) {
     try { if (debugHUDMesh.parent) debugHUDMesh.parent.remove(debugHUDMesh); } catch {}
-    cam.add(debugHUDMesh);
+    hudGroup.add(debugHUDMesh);
     debugHUDMesh.position.set(-0.85, 0.65, -1.0);
     debugHUDMesh.rotation.set(0, 0, 0);
     debugHUDMesh.visible = true;
@@ -269,6 +273,20 @@ function ensureDebugHUD() {
   // Initial draw
   updateDebug();
   return debugHUDMesh;
+}
+
+function ensureHudGroup() {
+  const cam = getActiveCamera();
+  if (!hudGroup) {
+    hudGroup = new THREE.Group();
+    hudGroup.name = 'hudGroup';
+    hudGroup.renderOrder = 9999;
+  }
+  if (hudGroup.parent !== cam) {
+    try { if (hudGroup.parent) hudGroup.parent.remove(hudGroup); } catch {}
+    cam.add(hudGroup);
+  }
+  return hudGroup;
 }
 
 function toggleVRDebug() {
@@ -656,6 +674,10 @@ function onXRFrame(time) {
 
   sendButtonsIfNeeded();
   if (videoTexture) videoTexture.needsUpdate = true;
+  // Keep HUD group aligned with active XR camera
+  try {
+    if (renderer?.xr?.isPresenting) ensureHudGroup();
+  } catch {}
   // Update joystick debug arrows when VR Debug is ON
   if (vrDebugEnabled) {
     const m = debugState.move || { x: 0, y: 0, yaw: 0 };
@@ -757,6 +779,7 @@ async function connectWebRTC() {
           hud.material.needsUpdate = true;
           hud.visible = true;
         }
+        ensureHudGroup();
       }
     } catch {}
   };
