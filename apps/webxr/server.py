@@ -8,6 +8,7 @@ import time
 import ssl
 from typing import Any, Dict, List, Optional
 import numpy as np
+import contextlib
 
 
 from go2_webrtc_driver import Go2RobotHelper
@@ -16,7 +17,7 @@ from go2_webrtc_driver.constants import WebRTCConnectionMethod
 from go2_webrtc_driver.cli_go2action import SUPPORTED_ACTIONS
 
 from aiortc import RTCPeerConnection, RTCSessionDescription, MediaStreamTrack
-from aiortc.contrib.media import MediaRelay
+from aiortc.contrib.media import MediaRelay, MediaPlayer
 from aiohttp import web, ClientSession
 
 
@@ -30,6 +31,7 @@ class RobotVRServer:
         self.robot: Optional[Go2RobotHelper] = None
         self.robot_video_track: Optional[MediaStreamTrack] = None
         self.video_relay: Optional[MediaRelay] = None
+        self._video_player: Optional[MediaPlayer] = None
 
         # Web clients state
         self.pcs: List[RTCPeerConnection] = []
@@ -49,6 +51,8 @@ class RobotVRServer:
         # LiDAR RX logging state
         self._lidar_rx_count: int = 0
         self._lidar_last_log_ts: float = 0.0
+        # LiDAR replay
+        self._lidar_replay_task: Optional[asyncio.Task] = None
 
         # Robot state cache (for assistant context)
         self.latest_state: Dict[str, Any] | None = None
@@ -64,6 +68,8 @@ class RobotVRServer:
 
         if self.args.no_robot:
             logger.warning("Starting WebXR server without robot connection (--no-robot)")
+            # If replay is requested, set up simulated sources
+            await self._maybe_start_replay_sources()
             return
 
         self.robot = Go2RobotHelper(
@@ -171,10 +177,26 @@ class RobotVRServer:
         try:
             if self.robot:
                 await self.robot.__aexit__(None, None, None)
+            # Stop replay sources
+            try:
+                if self._lidar_replay_task:
+                    self._lidar_replay_task.cancel()
+                    with contextlib.suppress(Exception):
+                        await self._lidar_replay_task
+            except Exception:
+                pass
+            try:
+                if self._video_player:
+                    with contextlib.suppress(Exception):
+                        await self._video_player.stop()
+            except Exception:
+                pass
         finally:
             self.robot = None
             self.robot_video_track = None
             self.video_relay = None
+            self._video_player = None
+            self._lidar_replay_task = None
 
     async def _handle_lidar_msg(self, message: Dict[str, Any]) -> None:
         now = time.time()
@@ -247,6 +269,94 @@ class RobotVRServer:
                 logger.info("LiDAR TX: no open clients; dropping frame (%d points, src=%s)", out_pts, src)
         except Exception as e:
             logger.debug(f"LiDAR processing error: {e}")
+
+    # ---------------- Replay sources (no-robot) -----------------
+    async def _maybe_start_replay_sources(self) -> None:
+        # Video replay via FFmpeg player if provided
+        if getattr(self.args, "replay_video", None):
+            try:
+                opts = {"-re": "1"}
+                if getattr(self.args, "replay_loop", False):
+                    # Loop indefinitely (-1)
+                    opts["-stream_loop"] = "-1"
+                self._video_player = MediaPlayer(self.args.replay_video, options=opts)
+                if self._video_player.video:
+                    self.robot_video_track = self._video_player.video
+                    if self.video_relay is None:
+                        self.video_relay = MediaRelay()
+                    # Attach to any existing PCs
+                    for pc in list(self.pcs):
+                        try:
+                            pc.addTrack(self.video_relay.subscribe(self.robot_video_track))
+                            setattr(pc, "_has_robot_video", True)
+                        except Exception:
+                            pass
+                    logger.info("Replay video source attached: %s", self.args.replay_video)
+            except Exception as e:
+                logger.error("Failed to start replay video '%s': %s", self.args.replay_video, e)
+
+        # LiDAR replay from .lidarlog
+        if getattr(self.args, "replay_lidar", None):
+            try:
+                self._lidar_replay_task = asyncio.create_task(self._run_lidar_replay(
+                    self.args.replay_lidar,
+                    speed=float(getattr(self.args, "replay_speed", 1.0) or 1.0),
+                    loop=bool(getattr(self.args, "replay_loop", False)),
+                ))
+                logger.info("LiDAR replay started: %s", self.args.replay_lidar)
+            except Exception as e:
+                logger.error("Failed to start LiDAR replay '%s': %s", self.args.replay_lidar, e)
+
+    async def _run_lidar_replay(self, path: str, speed: float = 1.0, loop: bool = False) -> None:
+        import struct
+        MAGIC = b"LIDARLOGv1\n"
+        HEADER_FMT = "<IQ"  # uint32 n_points, uint64 ts_us
+        HEADER_SZ = struct.calcsize(HEADER_FMT)
+
+        async def _broadcast(buf: bytes) -> None:
+            sent = 0
+            for ch in list(self.lidar_channels):
+                if getattr(ch, "readyState", None) == "open":
+                    try:
+                        ch.send(buf)
+                        sent += 1
+                    except Exception:
+                        pass
+            if sent:
+                logger.info("LiDAR TX(replay): %d bytes to %d clients", len(buf), sent)
+
+        while True:
+            try:
+                with open(path, "rb") as f:
+                    hdr = f.read(len(MAGIC))
+                    if hdr != MAGIC:
+                        logger.error("Invalid lidar log (magic mismatch): %s", path)
+                        return
+                    prev_ts: Optional[int] = None
+                    while True:
+                        h = f.read(HEADER_SZ)
+                        if not h or len(h) < HEADER_SZ:
+                            break
+                        npts, ts_us = struct.unpack(HEADER_FMT, h)
+                        num_floats = npts * 3
+                        payload_bytes = num_floats * 4
+                        buf = f.read(payload_bytes)
+                        if not buf or len(buf) < payload_bytes:
+                            break
+                        # pacing
+                        if prev_ts is not None and speed > 0:
+                            dt = max(0.0, (ts_us - prev_ts) / 1_000_000.0)
+                            if dt > 0:
+                                await asyncio.sleep(dt / max(1e-6, speed))
+                        prev_ts = ts_us
+                        await _broadcast(buf)
+                if not loop:
+                    return
+            except asyncio.CancelledError:
+                return
+            except Exception as e:
+                logger.error("LiDAR replay error: %s", e)
+                await asyncio.sleep(1.0)
 
     # ---------------- Web (browser) side -----------------
     async def index(self, request: web.Request) -> web.Response:
@@ -524,6 +634,11 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--username", default=os.getenv("UNITREE_USER"))
     p.add_argument("--password", default=os.getenv("UNITREE_PASS"))
     p.add_argument("--no-robot", action="store_true", help="Run server without connecting to robot (UI/dev mode)")
+    # Replay options (for --no-robot)
+    p.add_argument("--replay-lidar", type=str, default=None, help="Path to LiDAR .lidarlog file for replay")
+    p.add_argument("--replay-video", type=str, default=None, help="Path to video file for replay (mp4/mkv)")
+    p.add_argument("--replay-loop", action="store_true", help="Loop replayed content")
+    p.add_argument("--replay-speed", type=float, default=1.0, help="Speed multiplier for LiDAR replay (e.g., 0.5, 1.0, 2.0)")
     return p.parse_args()
 
 

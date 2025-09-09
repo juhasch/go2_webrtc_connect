@@ -42,7 +42,7 @@ ROTATE_Z_ANGLE = 0.0  # No rotation around Z
 MAX_RETRY_ATTEMPTS = 10
 ENABLE_POINT_CLOUD = True
 ENABLE_VIDEO = True
-RADII_FUDGE_FACTOR = 10.0  # Adjust this factor to change point size in Rerun
+RADII_FUDGE_FACTOR = 0.5  # Adjust this factor to change point size in Rerun
 
 # Global variables
 minYValue = -1000  # Much wider default range
@@ -84,6 +84,7 @@ parser.add_argument('--maxYValue', type=int, default=1000, help='Maximum Y value
 parser.add_argument('--disable-video', action="store_true", help='Disable video stream')
 parser.add_argument('--disable-lidar', action="store_true", help='Disable LIDAR stream')
 parser.add_argument('--no-y-filter', action="store_true", help='Disable Y-value filtering to see full field of view')
+parser.add_argument('--debug', action="store_true", help='Enable debug logging output')
 
 # Add accumulation arguments
 add_accumulation_args(parser)
@@ -305,7 +306,8 @@ async def recv_camera_stream(track: MediaStreamTrack):
                 elapsed_time = current_time - video_start_time
                 if elapsed_time > 0:
                     video_rate = video_frame_count / elapsed_time
-                    print(f"[DEBUG] Video rate: {video_rate:.2f} fps (frames: {video_frame_count}, elapsed: {elapsed_time:.2f}s)")
+                    if args.debug:
+                        print(f"[DEBUG] Video rate: {video_rate:.2f} fps (frames: {video_frame_count}, elapsed: {elapsed_time:.2f}s)")
                 last_video_rate_log = current_time
             
             if video_frame_count % 30 == 0:  # Print every 30 frames
@@ -326,7 +328,8 @@ async def lidar_callback_task(message):
     try:
         global lidar_message_count, lidar_start_time, last_lidar_rate_log
         
-        print(f"[DEBUG] LIDAR callback called - message_count: {lidar_message_count}")
+        if args.debug:
+            print(f"[DEBUG] LIDAR callback called - message_count: {lidar_message_count}")
         
         current_time = time.time()
         
@@ -337,7 +340,8 @@ async def lidar_callback_task(message):
         
         if lidar_message_count % args.skip_mod != 0:
             lidar_message_count += 1
-            print(f"[DEBUG] Skipping message {lidar_message_count} due to skip_mod={args.skip_mod}")
+            if args.debug:
+                print(f"[DEBUG] Skipping message {lidar_message_count} due to skip_mod={args.skip_mod}")
             return
 
         # Calculate and log LIDAR rate periodically
@@ -348,7 +352,8 @@ async def lidar_callback_task(message):
                 effective_messages = lidar_message_count // args.skip_mod
                 lidar_rate = effective_messages / elapsed_time
                 total_rate = lidar_message_count / elapsed_time
-                print(f"[DEBUG] LIDAR rate: {lidar_rate:.2f} processed/s, {total_rate:.2f} total/s (processed: {effective_messages}, total: {lidar_message_count}, elapsed: {elapsed_time:.2f}s)")
+                if args.debug:
+                    print(f"[DEBUG] LIDAR rate: {lidar_rate:.2f} processed/s, {total_rate:.2f} total/s (processed: {effective_messages}, total: {lidar_message_count}, elapsed: {elapsed_time:.2f}s)")
             last_lidar_rate_log = current_time
 
         # Handle both libvoxel and native decoder formats
@@ -366,7 +371,8 @@ async def lidar_callback_task(message):
             positions = data.get("positions", [])
             points = np.array([positions[i:i+3] for i in range(0, len(positions), 3)], dtype=np.float32)
         
-        print(f"[DEBUG] Raw points length: {len(points)}")
+        if args.debug:
+            print(f"[DEBUG] Raw points length: {len(points)}")
         
         # Process points with accumulation if enabled
         process_points_with_accumulation(
@@ -412,7 +418,7 @@ async def webrtc_connection():
                 await conn.datachannel.disableTrafficSaving(True)
                 
                 # Set the decoder type (this was missing!)
-                conn.datachannel.set_decoder(decoder_type='libvoxel')
+                conn.datachannel.set_decoder(decoder_type='native')
                 
                 # Turn LIDAR sensor on
                 conn.datachannel.pub_sub.publish_without_callback("rt/utlidar/switch", "on")
@@ -484,7 +490,8 @@ async def read_csv_and_emit(csv_file):
                             effective_messages = lidar_message_count // args.skip_mod
                             lidar_rate = effective_messages / elapsed_time
                             total_rate = lidar_message_count / elapsed_time
-                            print(f"[DEBUG] CSV LIDAR rate: {lidar_rate:.2f} processed/s, {total_rate:.2f} total/s (processed: {effective_messages}, total: {lidar_message_count}, elapsed: {elapsed_time:.2f}s)")
+                            if args.debug:
+                                print(f"[DEBUG] CSV LIDAR rate: {lidar_rate:.2f} processed/s, {total_rate:.2f} total/s (processed: {effective_messages}, total: {lidar_message_count}, elapsed: {elapsed_time:.2f}s)")
                         last_lidar_rate_log = current_time
                         
                     try:

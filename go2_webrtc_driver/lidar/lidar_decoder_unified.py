@@ -10,19 +10,19 @@ The unified decoder automatically handles initialization and provides a consiste
 regardless of the underlying decoder implementation.
 
 Example:
-    >>> # Use default libvoxel decoder
+    >>> # Use default native decoder
     >>> decoder = UnifiedLidarDecoder()
     >>> 
-    >>> # Use native decoder instead
-    >>> decoder = UnifiedLidarDecoder(decoder_type="native")
+    >>> # Use libvoxel decoder instead
+    >>> decoder = UnifiedLidarDecoder(decoder_type="libvoxel")
     >>> 
     >>> # Decode LiDAR data
     >>> result = decoder.decode(compressed_data, metadata)
     >>> print(f"Using {decoder.get_decoder_name()}")
 
 Available Decoders:
-    - libvoxel: WebAssembly-based decoder (default, faster)
-    - native: Pure Python decoder (more portable)
+    - native: Pure Python decoder (default; fast with Numba)
+    - libvoxel: WebAssembly-based decoder
 """
 
 from .lidar_decoder_libvoxel import LidarDecoder as LibVoxelDecoder
@@ -42,27 +42,27 @@ class UnifiedLidarDecoder:
         decoder_name: Name of the currently selected decoder
     
     Supported Decoder Types:
-        - "libvoxel": WebAssembly-based decoder using libvoxel.wasm
         - "native": Pure Python decoder implementation
+        - "libvoxel": WebAssembly-based decoder using libvoxel.wasm
     """
     
-    def __init__(self, decoder_type="libvoxel"):
+    def __init__(self, decoder_type="native"):
         """
         Initialize the UnifiedLidarDecoder with the specified decoder type.
 
         Args:
-            decoder_type (str): The type of decoder to use. Must be either "libvoxel" 
-                              or "native". Defaults to "libvoxel".
+            decoder_type (str): The type of decoder to use. Must be either "native" 
+                              or "libvoxel". Defaults to "native".
         
         Raises:
             ValueError: If decoder_type is not "libvoxel" or "native".
         
         Example:
-            >>> # Use default libvoxel decoder
+            >>> # Use default native decoder
             >>> decoder = UnifiedLidarDecoder()
             >>> 
-            >>> # Use native decoder
-            >>> decoder = UnifiedLidarDecoder(decoder_type="native")
+            >>> # Use libvoxel decoder
+            >>> decoder = UnifiedLidarDecoder(decoder_type="libvoxel")
         """
         if decoder_type == "libvoxel":
             self.decoder = LibVoxelDecoder()
