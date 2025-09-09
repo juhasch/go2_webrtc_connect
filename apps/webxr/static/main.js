@@ -10,6 +10,9 @@ let lidarPoints = null;
 let lidarGeometry = null;
 let pointerRight = null;
 let lidarGroup = null;      // container for LiDAR transform (rotation/pos)
+let lidarCubes = null;      // InstancedMesh for cube rendering
+let lidarCubeSize = 0.03;
+let _cubeDummy = null;      // reused Object3D for per-instance transforms
 
 let videoEl = null;
 let videoMesh = null;
@@ -229,7 +232,7 @@ let pcYaw = 0;    // radians
 let pcPitch = 0;  // radians
 const PC_PITCH_MIN = -1.3, PC_PITCH_MAX = 1.3;
 const PC_ROT_SPEED = 2.2; // rad/sec per full deflection
-let RIGHT_B_INDEX = 1; // heuristic default; can override via ?rb=idx
+let RIGHT_B_INDEX = 5; // default button for rotate toggle; override via ?rb=idx
 let _prevRightB = false;
 let RIGHT_PANEL_INDEX = 4; // default button index for panel toggle; override via ?rp=idx
 let _prevRightPanel = false;
@@ -451,6 +454,7 @@ function ensureControlPanelGroup() {
     hudGroup.add(panelGroup);
     panelGroup.position.set(0, -0.02, 0);
     panelGroup.scale.set(0.7, 0.7, 1.0); // shrink panel to fit FOV
+    panelGroup.visible = false; // hidden by default
   }
   return panelGroup;
 }
@@ -615,36 +619,37 @@ function sendButtonsIfNeeded() {
 }
 
 function ensureLidarScene() {
-  if (lidarPoints) return;
   if (!lidarGroup) {
     lidarGroup = new THREE.Group();
     lidarGroup.position.set(0, 0, -2.0);
     scene.add(lidarGroup);
   }
-  lidarGeometry = new THREE.BufferGeometry();
-  const positions = new Float32Array(3); // will grow dynamically
-  lidarGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-  // Initialize color attribute for per-vertex coloring
-  const colors = new Float32Array(3);
-  lidarGeometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-  const material = new THREE.PointsMaterial({ size: 0.03, sizeAttenuation: true, vertexColors: true });
-  lidarPoints = new THREE.Points(lidarGeometry, material);
-  lidarPoints.renderOrder = 2;
-  lidarGroup.add(lidarPoints);
+  // Initialize points geometry lazily only if we need it; cubes will be default
+  if (!lidarPoints) {
+    lidarGeometry = new THREE.BufferGeometry();
+    const positions = new Float32Array(3); // will grow dynamically
+    lidarGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    const colors = new Float32Array(3);
+    lidarGeometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+    const material = new THREE.PointsMaterial({ size: 0.03, sizeAttenuation: true, vertexColors: true });
+    lidarPoints = new THREE.Points(lidarGeometry, material);
+    lidarPoints.renderOrder = 2;
+    lidarPoints.visible = false; // default hidden when using cubes
+    lidarGroup.add(lidarPoints);
+  }
 }
 
 function updateLidarPoints(buffer) {
   ensureLidarScene();
   const arr = new Float32Array(buffer);
   const count = Math.floor(arr.length / 3);
+  if (count <= 0) return;
   if (!lidarGeometry) return;
   const oldAttr = lidarGeometry.getAttribute('position');
   if (!oldAttr || oldAttr.array.length < arr.length) {
     lidarGeometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(arr.length), 3));
-    // Resize color attribute accordingly
     lidarGeometry.setAttribute('color', new THREE.BufferAttribute(new Float32Array(count * 3), 3));
   } else {
-    // Ensure color attribute exists and is large enough
     const oldColor = lidarGeometry.getAttribute('color');
     if (!oldColor || oldColor.array.length < count * 3) {
       lidarGeometry.setAttribute('color', new THREE.BufferAttribute(new Float32Array(count * 3), 3));
@@ -713,6 +718,39 @@ function updateLidarPoints(buffer) {
   colorAttr.needsUpdate = true;
   lidarGeometry.setDrawRange(0, count);
   lidarGeometry.computeBoundingSphere();
+
+  // --- Render as cubes using InstancedMesh ---
+  if (!_cubeDummy) _cubeDummy = new THREE.Object3D();
+  const needCreate = !lidarCubes || (lidarCubes.userData.capacity || 0) < count;
+  if (needCreate) {
+    try { if (lidarCubes && lidarCubes.parent) lidarCubes.parent.remove(lidarCubes); } catch {}
+    const cap = count;
+    const boxGeo = new THREE.BoxGeometry(lidarCubeSize, lidarCubeSize, lidarCubeSize);
+    const boxMat = new THREE.MeshBasicMaterial({ vertexColors: true });
+    lidarCubes = new THREE.InstancedMesh(boxGeo, boxMat, cap);
+    lidarCubes.userData.capacity = cap;
+    lidarCubes.count = count;
+    lidarCubes.renderOrder = 3;
+    lidarGroup.add(lidarCubes);
+    // Hide points since we're using cubes
+    if (lidarPoints) lidarPoints.visible = false;
+  } else {
+    lidarCubes.count = count;
+  }
+  const col = new THREE.Color();
+  for (let i = 0; i < count; i++) {
+    const px = dst[3*i + 0];
+    const py = dst[3*i + 1];
+    const pz = dst[3*i + 2];
+    _cubeDummy.position.set(px, py, pz);
+    _cubeDummy.rotation.set(0, 0, 0);
+    _cubeDummy.updateMatrix();
+    lidarCubes.setMatrixAt(i, _cubeDummy.matrix);
+    col.setRGB(cArr[3*i + 0] || 1, cArr[3*i + 1] || 1, cArr[3*i + 2] || 1);
+    if (lidarCubes.setColorAt) lidarCubes.setColorAt(i, col);
+  }
+  lidarCubes.instanceMatrix.needsUpdate = true;
+  if (lidarCubes.instanceColor) lidarCubes.instanceColor.needsUpdate = true;
 }
 
 let _lastXRTime = 0;
