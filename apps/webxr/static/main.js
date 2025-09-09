@@ -127,7 +127,7 @@ async function setupThree() {
   // Show/hide video HUD when entering/leaving XR
   try {
     renderer.xr.addEventListener('sessionstart', () => {
-      if (videoMesh) videoMesh.visible = false; // hide world screen in VR
+      if (videoMesh) videoMesh.visible = true; // keep world screen as fallback in VR
       if (videoTexture) ensureVideoHUD();
       if (videoHUDMesh) videoHUDMesh.visible = (debugState.video === 'playing');
       ensureHudGroup();
