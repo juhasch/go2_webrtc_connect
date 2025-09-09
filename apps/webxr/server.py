@@ -122,7 +122,7 @@ class RobotVRServer:
 
         # LiDAR: request stream and subscribe
         await conn.datachannel.disableTrafficSaving(True)
-        decoder_type = os.getenv("GO2_LIDAR_DECODER", "libvoxel")
+        decoder_type = os.getenv("GO2_LIDAR_DECODER", "native")
         try:
             conn.datachannel.set_decoder(decoder_type=decoder_type)
             logger.info("LiDAR decoder set to %s", decoder_type)

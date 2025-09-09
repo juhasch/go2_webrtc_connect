@@ -833,9 +833,11 @@ async function connectWebRTC() {
     videoTexture.magFilter = THREE.LinearFilter;
     // Replace world screen material with an opaque video material
     try {
-      const screenMat = new THREE.MeshBasicMaterial({ map: videoTexture, side: THREE.DoubleSide });
+      const screenMat = new THREE.MeshBasicMaterial({ map: videoTexture, side: THREE.DoubleSide, transparent: false, opacity: 1.0 });
       screenMat.depthWrite = false;
+      screenMat.depthTest = false; // draw over LiDAR points
       videoMesh.material = screenMat;
+      videoMesh.renderOrder = 10000;
       videoMesh.material.needsUpdate = true;
     } catch {}
     // Bind texture to HUD in XR if active
@@ -844,10 +846,10 @@ async function connectWebRTC() {
         const hud = ensureVideoHUD();
         if (hud) {
           try {
-            const mat = new THREE.MeshBasicMaterial({ map: videoTexture, side: THREE.DoubleSide });
-            mat.depthWrite = false;
-            mat.depthTest = false;
-            hud.material = mat;
+            hud.material.map = videoTexture;
+            hud.material.depthWrite = false;
+            hud.material.depthTest = false;
+            hud.renderOrder = 10000;
             hud.material.needsUpdate = true;
           } catch {}
           hud.visible = (debugState.video === 'playing');
