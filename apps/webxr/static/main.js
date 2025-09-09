@@ -734,8 +734,7 @@ function updateLidarPoints(buffer) {
     try { if (lidarCubes && lidarCubes.parent) lidarCubes.parent.remove(lidarCubes); } catch {}
     const cap = count;
     const boxGeo = new THREE.BoxGeometry(lidarCubeSize, lidarCubeSize, lidarCubeSize);
-    // Diagnostic: draw solid bright green cubes (ignore per-instance colors)
-    const boxMat = new THREE.MeshBasicMaterial({ vertexColors: false, toneMapped: false, color: 0x00ff55, transparent: false, opacity: 1.0 });
+    const boxMat = new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false, transparent: false, opacity: 1.0 });
     boxMat.depthTest = true;
     boxMat.depthWrite = true;
     lidarCubes = new THREE.InstancedMesh(boxGeo, boxMat, cap);
@@ -768,6 +767,7 @@ function updateLidarPoints(buffer) {
     if (lidarCubes.setColorAt) lidarCubes.setColorAt(i, col);
   }
   lidarCubes.instanceMatrix.needsUpdate = true;
+  // In three r160+, setColorAt writes to internal instance color; mark needsUpdate on instanceColor if present
   if (lidarCubes.instanceColor) lidarCubes.instanceColor.needsUpdate = true;
 }
 
