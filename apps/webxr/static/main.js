@@ -734,9 +734,28 @@ function updateLidarPoints(buffer) {
     try { if (lidarCubes && lidarCubes.parent) lidarCubes.parent.remove(lidarCubes); } catch {}
     const cap = count;
     const boxGeo = new THREE.BoxGeometry(lidarCubeSize, lidarCubeSize, lidarCubeSize);
-    const boxMat = new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false, transparent: false, opacity: 1.0 });
-    boxMat.depthTest = true;
-    boxMat.depthWrite = true;
+    // Custom shader that uses per-instance color explicitly
+    const boxMat = new THREE.ShaderMaterial({
+      transparent: false,
+      depthTest: true,
+      depthWrite: true,
+      uniforms: {},
+      vertexShader: `
+        attribute mat4 instanceMatrix;
+        attribute vec3 instanceColor;
+        varying vec3 vColor;
+        void main() {
+          vColor = instanceColor;
+          gl_Position = projectionMatrix * modelViewMatrix * instanceMatrix * vec4(position, 1.0);
+        }
+      `,
+      fragmentShader: `
+        varying vec3 vColor;
+        void main() {
+          gl_FragColor = vec4(vColor, 1.0);
+        }
+      `,
+    });
     lidarCubes = new THREE.InstancedMesh(boxGeo, boxMat, cap);
     lidarCubes.userData.capacity = cap;
     lidarCubes.count = count;
