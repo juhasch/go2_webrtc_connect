@@ -749,11 +749,6 @@ function updateLidarPoints(buffer) {
   } else {
     lidarCubes.count = count;
   }
-  // Ensure instanceColor exists and has enough capacity
-  if (!lidarCubes.instanceColor || (lidarCubes.instanceColor.array.length < count * 3)) {
-    try { lidarCubes.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(count * 3), 3); } catch {}
-  }
-  const icArr = lidarCubes.instanceColor ? lidarCubes.instanceColor.array : null;
   const col = new THREE.Color();
   for (let i = 0; i < count; i++) {
     const px = dst[3*i + 0];
@@ -763,16 +758,13 @@ function updateLidarPoints(buffer) {
     _cubeDummy.rotation.set(0, 0, 0);
     _cubeDummy.updateMatrix();
     lidarCubes.setMatrixAt(i, _cubeDummy.matrix);
-    let r = cArr[3*i + 0]; if (r === undefined || isNaN(r)) r = 1;
-    let g = cArr[3*i + 1]; if (g === undefined || isNaN(g)) g = 1;
-    let b = cArr[3*i + 2]; if (b === undefined || isNaN(b)) b = 1;
+    let r = cArr[3*i + 0]; if (!(r >= 0)) r = 1;
+    let g = cArr[3*i + 1]; if (!(g >= 0)) g = 1;
+    let b = cArr[3*i + 2]; if (!(b >= 0)) b = 1;
     // Prevent fully black due to precision by lifting very low values
     const floor = 0.06; if (r < floor && g < floor && b < floor) { r = floor; g = floor; b = floor; }
-    if (icArr) {
-      icArr[3*i + 0] = r;
-      icArr[3*i + 1] = g;
-      icArr[3*i + 2] = b;
-    }
+    col.setRGB(r, g, b);
+    if (lidarCubes.setColorAt) lidarCubes.setColorAt(i, col);
   }
   lidarCubes.instanceMatrix.needsUpdate = true;
   if (lidarCubes.instanceColor) lidarCubes.instanceColor.needsUpdate = true;
