@@ -11,7 +11,7 @@ let lidarGeometry = null;
 let pointerRight = null;
 let lidarGroup = null;      // container for LiDAR transform (rotation/pos)
 let lidarCubes = null;      // InstancedMesh for cube rendering
-let lidarCubeSize = 0.03;
+let lidarCubeSize = 0.05;
 let _cubeDummy = null;      // reused Object3D for per-instance transforms
 
 let videoEl = null;
@@ -690,7 +690,7 @@ function updateLidarPoints(buffer) {
   if (scale > 0 && scale !== 1) {
     for (let i = 0; i < count*3; i++) dst[i] *= scale;
   }
-  // Compute per-vertex colors based on height (z), rainbow HSV hue from blue->red
+  // Compute per-vertex colors based on height (z) but map to a green->yellow gradient for clarity
   const colorAttr = lidarGeometry.getAttribute('color');
   const cArr = colorAttr.array;
   let zMin = Infinity, zMax = -Infinity;
@@ -703,23 +703,12 @@ function updateLidarPoints(buffer) {
   for (let i = 0; i < count; i++) {
     const z = dst[3*i + 2];
     const norm = (z - zMin) / denom; // 0..1
-    const hue = (2.0 / 3.0) * (1.0 - norm); // 2/3..0 blue->red
-    const hh = hue * 6.0;
-    const c = 1.0;
-    const x = c * (1.0 - Math.abs((hh % 2.0) - 1.0));
-    const sext = Math.floor(hh) % 6;
-    let r = 0, g = 0, b = 0;
-    if (sext === 0) { r = c; g = x; b = 0; }
-    else if (sext === 1) { r = x; g = c; b = 0; }
-    else if (sext === 2) { r = 0; g = c; b = x; }
-    else if (sext === 3) { r = 0; g = x; b = c; }
-    else if (sext === 4) { r = x; g = 0; b = c; }
-    else /* 5 */ { r = c; g = 0; b = x; }
-    // Apply gamma to give brighter mid-tones
-    const gamma = 1.0/1.6;
-    cArr[3*i + 0] = Math.pow(r, gamma);
-    cArr[3*i + 1] = Math.pow(g, gamma);
-    cArr[3*i + 2] = Math.pow(b, gamma);
+    const r = 0.2 + 0.8 * norm; // 0.2..1.0
+    const g = 0.8 + 0.2 * (1.0 - norm); // 1.0..0.8
+    const b = 0.05; // small blue component to avoid pure black
+    cArr[3*i + 0] = r;
+    cArr[3*i + 1] = g;
+    cArr[3*i + 2] = b;
   }
   const attr = lidarGeometry.getAttribute('position');
   attr.needsUpdate = true;
@@ -782,6 +771,13 @@ function updateLidarPoints(buffer) {
   }
   lidarCubes.instanceMatrix.needsUpdate = true;
   if (lidarCubes.instanceColor) lidarCubes.instanceColor.needsUpdate = true;
+  // Fallback: if per-instance color still fails on device, color the material directly by height midpoint
+  try {
+    if (!lidarCubes.instanceColor) {
+      const mid = 0.5;
+      lidarCubes.material.color.setRGB(0.2 + 0.8*mid, 0.8 + 0.2*(1.0-mid), 0.05);
+    }
+  } catch {}
   // Ensure visibility
   lidarCubes.visible = true;
   if (lidarPoints) lidarPoints.visible = false;
