@@ -15,6 +15,7 @@ let videoEl = null;
 let videoMesh = null;
 let videoTexture = null;
 let previewEl = null;
+let videoHUDMesh = null;    // camera-attached video plane for VR
 // VR debug visuals
 let vrDebugEnabled = false;
 let hudMesh = null;        // camera-attached HUD plane
@@ -92,6 +93,17 @@ async function setupThree() {
   document.body.appendChild(renderer.domElement);
 
   document.body.appendChild(VRButton.createButton(renderer));
+
+  // Show/hide video HUD when entering/leaving XR
+  try {
+    renderer.xr.addEventListener('sessionstart', () => {
+      if (videoTexture) ensureVideoHUD();
+      if (videoHUDMesh) videoHUDMesh.visible = true;
+    });
+    renderer.xr.addEventListener('sessionend', () => {
+      if (videoHUDMesh) videoHUDMesh.visible = false;
+    });
+  } catch {}
 
   // Basic lighting
   const light = new THREE.HemisphereLight(0xffffff, 0x222233, 1.0);
@@ -173,6 +185,23 @@ function ensureVideoMaterial() {
     return new THREE.MeshBasicMaterial({ color: 0x3333aa, side: THREE.DoubleSide });
   }
   return new THREE.MeshBasicMaterial({ map: videoTexture, side: THREE.DoubleSide });
+}
+
+function ensureVideoHUD() {
+  if (!videoTexture) return null;
+  if (!videoHUDMesh) {
+    const mat = ensureVideoMaterial();
+    const geo = new THREE.PlaneGeometry(1.6, 0.9);
+    videoHUDMesh = new THREE.Mesh(geo, mat);
+    videoHUDMesh.name = 'videoHUD';
+    videoHUDMesh.renderOrder = 998;
+    videoHUDMesh.material.depthWrite = false;
+  }
+  if (videoHUDMesh.parent !== camera) {
+    camera.add(videoHUDMesh);
+    videoHUDMesh.position.set(0, 0, -1.6);
+  }
+  return videoHUDMesh;
 }
 
 function toggleVRDebug() {
@@ -640,6 +669,13 @@ async function connectWebRTC() {
     // tex.format no longer needed
     videoMesh.material.map = videoTexture;
     videoMesh.material.needsUpdate = true;
+    // Bind texture to HUD in XR if active
+    try {
+      if (renderer?.xr?.isPresenting) {
+        const hud = ensureVideoHUD();
+        if (hud) { hud.material.map = videoTexture; hud.material.needsUpdate = true; hud.visible = true; }
+      }
+    } catch {}
   };
 
   // Keep a fallback in case the answerer also creates channels
