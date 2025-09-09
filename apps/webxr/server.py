@@ -268,9 +268,9 @@ class RobotVRServer:
 
             self.last_lidar_sent_ts = now
             if sent_count:
-                logger.info("LiDAR TX: %d points to %d clients, %d bytes (src=%s)", out_pts, sent_count, len(buf), src)
+                logger.debug("LiDAR TX: %d points to %d clients, %d bytes (src=%s)", out_pts, sent_count, len(buf), src)
             else:
-                logger.info("LiDAR TX: no open clients; dropping frame (%d points, src=%s)", out_pts, src)
+                logger.debug("LiDAR TX: no open clients; dropping frame (%d points, src=%s)", out_pts, src)
         except Exception as e:
             logger.debug(f"LiDAR processing error: {e}")
 

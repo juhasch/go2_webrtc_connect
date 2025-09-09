@@ -29,7 +29,7 @@ const tempMatrix = new THREE.Matrix4();
 // Movement throttle
 let lastMoveSent = 0;
 const moveIntervalMs = 80; // ~12.5 Hz to reduce spam
-const deadzone = 0.08;
+const deadzone = 0.05;
 
 // Joystick button state (for logging/demo)
 let lastButtonsSentAt = 0;
@@ -293,29 +293,26 @@ function onSelectStart() {
   }
 }
 
-function controllerStickXY(controller) {
+function getGamepadForHand(hand) {
   try {
-    const src = controller?.inputSource;
-    const gp = src?.gamepad;
-    if (!gp) return { x: 0, y: 0 };
-    // Prefer axes[0], axes[1] for xr-standard; fallback to [2], [3]
-    let ax = 0, ay = 0;
-    if (gp.axes && gp.axes.length >= 2) {
-      ax = gp.axes[0] ?? 0; ay = gp.axes[1] ?? 0;
+    const s = renderer?.xr?.getSession?.();
+    if (!s || !s.inputSources) return null;
+    for (const src of s.inputSources) {
+      if (src && src.handedness === hand && src.gamepad) return src.gamepad;
     }
-    if ((Math.abs(ax) + Math.abs(ay)) < 0.01 && gp.axes && gp.axes.length >= 4) {
-      ax = gp.axes[2] ?? 0; ay = gp.axes[3] ?? 0;
-    }
-    // Update debug: show all raw axes
-    if (controller === leftController) {
-      debugState.leftAxes = gp.axes ? Array.from(gp.axes) : [];
-    } else if (controller === rightController) {
-      debugState.rightAxes = gp.axes ? Array.from(gp.axes) : [];
-    }
-    return { x: ax, y: ay };
-  } catch (e) {
-    return { x: 0, y: 0 };
-  }
+  } catch {}
+  return null;
+}
+
+function getHandAxes(hand, fallbackController) {
+  try {
+    const gp = getGamepadForHand(hand) || (fallbackController?.inputSource?.gamepad || null);
+    if (!gp || !gp.axes) return [];
+    const axes = Array.from(gp.axes);
+    if (hand === 'left') debugState.leftAxes = axes;
+    if (hand === 'right') debugState.rightAxes = axes;
+    return axes;
+  } catch { return []; }
 }
 
 function sendMoveIfNeeded() {
@@ -323,12 +320,15 @@ function sendMoveIfNeeded() {
   const now = performance.now();
   if (now - lastMoveSent < moveIntervalMs) return;
 
-  // left stick → x/y; right stick X → yaw
-  const ls = controllerStickXY(leftController);
-  const rs = controllerStickXY(rightController);
-  let x = dz(-ls.y); // forward when pushing up
-  let y = dz(ls.x);
-  let yaw = dz(rs.x);
+  // left stick → x/y; right stick X/2 → yaw
+  const la = getHandAxes('left', leftController);
+  const ra = getHandAxes('right', rightController);
+  const lax = Number(la[0] || 0), lay = Number(la[1] || 0);
+  let x = dz(-lay); // forward when pushing up
+  let y = dz(lax);
+  // Prefer right axes[2] for yaw if present (common on XR), else axes[0]
+  const ryaw = (typeof ra[2] === 'number') ? Number(ra[2]) : Number(ra[0] || 0);
+  let yaw = dz(ryaw);
 
   // Only send if significant change or a periodic keepalive
   const prev = sendMoveIfNeeded._prev || { x: 0, y: 0, yaw: 0 };
@@ -353,9 +353,9 @@ function sendMoveIfNeeded() {
   }
 }
 
-function readButtons(controller) {
+function readButtonsForHand(hand, fallbackController) {
   try {
-    const gp = controller?.inputSource?.gamepad;
+    const gp = getGamepadForHand(hand) || (fallbackController?.inputSource?.gamepad || null);
     if (!gp || !gp.buttons) return [];
     return gp.buttons.map(b => ({ pressed: !!b.pressed, touched: !!b.touched, value: Number(b.value || 0) }));
   } catch { return []; }
@@ -365,8 +365,8 @@ function sendButtonsIfNeeded() {
   if (!controlChannel || controlChannel.readyState !== 'open') return;
   const now = performance.now();
   if (now - lastButtonsSentAt < 150) return; // ~6-7 Hz
-  const lb = readButtons(leftController);
-  const rb = readButtons(rightController);
+  const lb = readButtonsForHand('left', leftController);
+  const rb = readButtonsForHand('right', rightController);
   const changed = JSON.stringify(lb) !== JSON.stringify(lastButtonsState.left) || JSON.stringify(rb) !== JSON.stringify(lastButtonsState.right);
   if (changed) {
     try {
