@@ -723,7 +723,7 @@ function updateLidarPoints(buffer) {
     try { if (lidarCubes && lidarCubes.parent) lidarCubes.parent.remove(lidarCubes); } catch {}
     const cap = count;
     const boxGeo = new THREE.BoxGeometry(lidarCubeSize, lidarCubeSize, lidarCubeSize);
-    // Use MeshBasicMaterial with per-instance vertexColors via instanceColor attribute
+    // Use MeshBasicMaterial with per-instance vertexColors via setColorAt()
     const boxMat = new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false, transparent: false, opacity: 1.0 });
     lidarCubes = new THREE.InstancedMesh(boxGeo, boxMat, cap);
     lidarCubes.userData.capacity = cap;
@@ -741,14 +741,6 @@ function updateLidarPoints(buffer) {
   } else {
     lidarCubes.count = count;
   }
-  // Ensure instanceColor has enough capacity and is bound
-  if (!lidarCubes.instanceColor || (lidarCubes.instanceColor.count || 0) < count) {
-    try {
-      lidarCubes.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(count * 3), 3);
-      lidarCubes.geometry.setAttribute('instanceColor', lidarCubes.instanceColor);
-    } catch {}
-  }
-  const icArr = lidarCubes.instanceColor ? lidarCubes.instanceColor.array : null;
   const col = new THREE.Color();
   for (let i = 0; i < count; i++) {
     const px = dst[3*i + 0];
@@ -763,14 +755,11 @@ function updateLidarPoints(buffer) {
     let b = cArr[3*i + 2]; if (!(b >= 0)) b = 1;
     // Prevent fully black due to precision by lifting very low values
     const floor = 0.06; if (r < floor && g < floor && b < floor) { r = floor; g = floor; b = floor; }
-    if (icArr) {
-      icArr[3*i + 0] = r;
-      icArr[3*i + 1] = g;
-      icArr[3*i + 2] = b;
-    }
+    col.setRGB(r, g, b);
+    if (lidarCubes.setColorAt) lidarCubes.setColorAt(i, col);
   }
   lidarCubes.instanceMatrix.needsUpdate = true;
-  if (lidarCubes.instanceColor) lidarCubes.instanceColor.needsUpdate = true;
+  try { if (lidarCubes.instanceColor) lidarCubes.instanceColor.needsUpdate = true; } catch {}
   // Fallback: if per-instance color still fails on device, color the material directly by height midpoint
   try {
     if (!lidarCubes.instanceColor) {
@@ -781,6 +770,12 @@ function updateLidarPoints(buffer) {
   // Ensure visibility
   lidarCubes.visible = true;
   if (lidarPoints) lidarPoints.visible = false;
+  // Hard fallback: if per-instance path fails on device, color solid to verify geometry
+  try {
+    if (!lidarCubes.material || !lidarCubes.material.vertexColors) {
+      lidarCubes.material = new THREE.MeshBasicMaterial({ color: 0xffaa00, toneMapped: false });
+    }
+  } catch {}
 }
 
 let _lastXRTime = 0;
