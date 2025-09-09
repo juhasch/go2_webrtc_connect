@@ -740,94 +740,90 @@ function updateLidarPoints(buffer) {
   lidarGeometry.setDrawRange(0, count);
   lidarGeometry.computeBoundingSphere();
 
-  // Points path always available
-  lidarPoints.visible = (lidarRenderMode === 'points');
-  // --- Render as cubes using InstancedMesh ---
-  if (!_cubeDummy) _cubeDummy = new THREE.Object3D();
-  const needCreate = !lidarCubes || (lidarCubes.userData.capacity || 0) < count;
-  if (needCreate) {
-    try { if (lidarCubes && lidarCubes.parent) lidarCubes.parent.remove(lidarCubes); } catch {}
-    const cap = count;
-    const boxGeo = new THREE.BoxGeometry(lidarCubeSize, lidarCubeSize, lidarCubeSize);
-    // Use MeshBasicMaterial with per-instance vertexColors via setColorAt()
-    const boxMat = new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false, transparent: false, opacity: 1.0 });
-    lidarCubes = new THREE.InstancedMesh(boxGeo, boxMat, cap);
-    lidarCubes.userData.capacity = cap;
-    lidarCubes.count = count;
-    lidarCubes.renderOrder = 3;
-    lidarCubes.frustumCulled = false;
-    // Explicitly allocate per-instance color buffer and bind to geometry
-    try {
-      lidarCubes.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(cap * 3), 3);
-      lidarCubes.geometry.setAttribute('instanceColor', lidarCubes.instanceColor);
-    } catch {}
-    lidarGroup.add(lidarCubes);
-    // Hide points since we're using cubes
-    if (lidarPoints) lidarPoints.visible = false;
-  } else {
-    lidarCubes.count = count;
-  }
-  const col = new THREE.Color();
-  for (let i = 0; i < count; i++) {
-    const px = dst[3*i + 0];
-    const py = dst[3*i + 1];
-    const pz = dst[3*i + 2];
-    _cubeDummy.position.set(px, py, pz);
-    _cubeDummy.rotation.set(0, 0, 0);
-    _cubeDummy.updateMatrix();
-    lidarCubes.setMatrixAt(i, _cubeDummy.matrix);
-    let r = cArr[3*i + 0]; if (!(r >= 0)) r = 1;
-    let g = cArr[3*i + 1]; if (!(g >= 0)) g = 1;
-    let b = cArr[3*i + 2]; if (!(b >= 0)) b = 1;
-    // Prevent fully black due to precision by lifting very low values
-    const floor = 0.06; if (r < floor && g < floor && b < floor) { r = floor; g = floor; b = floor; }
-    col.setRGB(r, g, b);
-    if (lidarCubes.setColorAt) lidarCubes.setColorAt(i, col);
-  }
-  lidarCubes.instanceMatrix.needsUpdate = true;
-  try { if (lidarCubes.instanceColor) lidarCubes.instanceColor.needsUpdate = true; } catch {}
-  // Fallback: if per-instance color still fails on device, color the material directly by height midpoint
-  try {
-    if (!lidarCubes.instanceColor) {
-      const mid = 0.5;
-      lidarCubes.material.color.setRGB(0.2 + 0.8*mid, 0.8 + 0.2*(1.0-mid), 0.05);
-    }
-  } catch {}
-  // Ensure visibility
-  lidarCubes.visible = true;
-  if (lidarPoints) lidarPoints.visible = false;
-  // If cubes still render black, switch to palette-binned instanced meshes
-  if (!renderer.capabilities.isWebGL2) {
-    try {
-      // Remove per-instance colored mesh
-      lidarGroup.remove(lidarCubes);
-    } catch {}
-    // Build bins:
-    const bins = Array.from({ length: LIDAR_NUM_BINS }, () => []);
-    const zMinLocal = zMin;
-    const zRange = Math.max(1e-6, zMax - zMinLocal);
-    for (let i = 0; i < count; i++) {
-      const z = dst[3*i + 2];
-      let t = (z - zMinLocal) / zRange; if (t < 0) t = 0; if (t > 1) t = 1;
-      let bi = Math.floor(t * (LIDAR_NUM_BINS - 1));
-      bins[bi].push(i);
-    }
-    const boxGeo2 = new THREE.BoxGeometry(lidarCubeSize, lidarCubeSize, lidarCubeSize);
-    for (let bi = 0; bi < LIDAR_NUM_BINS; bi++) {
-      const idxs = bins[bi]; if (!idxs.length) continue;
-      const mat = new THREE.MeshBasicMaterial({ color: lidarPalette ? lidarPalette[bi] : 0x66ff55, toneMapped: false });
-      const m = new THREE.InstancedMesh(boxGeo2, mat, idxs.length);
-      m.frustumCulled = false;
-      for (let j = 0; j < idxs.length; j++) {
-        const i = idxs[j];
-        _cubeDummy.position.set(dst[3*i+0], dst[3*i+1], dst[3*i+2]);
-        _cubeDummy.rotation.set(0,0,0);
-        _cubeDummy.updateMatrix();
-        m.setMatrixAt(j, _cubeDummy.matrix);
+  // Ensure points are visible by default for broad compatibility
+  if (lidarPoints) lidarPoints.visible = true;
+
+  // Only build cube/binned renderers if explicitly requested
+  if (lidarRenderMode === 'cubes' || lidarRenderMode === 'bins') {
+    // --- Render as cubes using InstancedMesh ---
+    if (!_cubeDummy) _cubeDummy = new THREE.Object3D();
+    const needCreate = !lidarCubes || (lidarCubes.userData.capacity || 0) < count;
+    if (lidarRenderMode === 'cubes') {
+      if (needCreate) {
+        try { if (lidarCubes && lidarCubes.parent) lidarCubes.parent.remove(lidarCubes); } catch {}
+        const cap = count;
+        const boxGeo = new THREE.BoxGeometry(lidarCubeSize, lidarCubeSize, lidarCubeSize);
+        const boxMat = new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false, transparent: false, opacity: 1.0 });
+        lidarCubes = new THREE.InstancedMesh(boxGeo, boxMat, cap);
+        lidarCubes.userData.capacity = cap;
+        lidarCubes.count = count;
+        lidarCubes.renderOrder = 3;
+        lidarCubes.frustumCulled = false;
+        try {
+          lidarCubes.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(cap * 3), 3);
+          lidarCubes.geometry.setAttribute('instanceColor', lidarCubes.instanceColor);
+        } catch {}
+        lidarGroup.add(lidarCubes);
+      } else {
+        lidarCubes.count = count;
       }
-      m.instanceMatrix.needsUpdate = true;
-      lidarGroup.add(m);
-      lidarBinMeshes.push(m);
+      const col = new THREE.Color();
+      for (let i = 0; i < count; i++) {
+        const px = dst[3*i + 0];
+        const py = dst[3*i + 1];
+        const pz = dst[3*i + 2];
+        _cubeDummy.position.set(px, py, pz);
+        _cubeDummy.rotation.set(0, 0, 0);
+        _cubeDummy.updateMatrix();
+        lidarCubes.setMatrixAt(i, _cubeDummy.matrix);
+        let r = cArr[3*i + 0]; if (!(r >= 0)) r = 1;
+        let g = cArr[3*i + 1]; if (!(g >= 0)) g = 1;
+        let b = cArr[3*i + 2]; if (!(b >= 0)) b = 1;
+        const floor = 0.06; if (r < floor && g < floor && b < floor) { r = floor; g = floor; b = floor; }
+        col.setRGB(r, g, b);
+        if (lidarCubes.setColorAt) lidarCubes.setColorAt(i, col);
+      }
+      lidarCubes.instanceMatrix.needsUpdate = true;
+      try { if (lidarCubes.instanceColor) lidarCubes.instanceColor.needsUpdate = true; } catch {}
+      // Visibility: show cubes, hide points
+      lidarCubes.visible = true;
+      if (lidarPoints) lidarPoints.visible = false;
+    }
+
+    // If bins mode requested or WebGL2 features unsupported, build palette bins
+    if (lidarRenderMode === 'bins' || (!renderer.capabilities.isWebGL2)) {
+      try { if (lidarCubes && lidarCubes.parent) lidarCubes.parent.remove(lidarCubes); } catch {}
+      const bins = Array.from({ length: LIDAR_NUM_BINS }, () => []);
+      const zMinLocal = zMin;
+      const zRange = Math.max(1e-6, zMax - zMinLocal);
+      for (let i = 0; i < count; i++) {
+        const z = dst[3*i + 2];
+        let t = (z - zMinLocal) / zRange; if (t < 0) t = 0; if (t > 1) t = 1;
+        let bi = Math.floor(t * (LIDAR_NUM_BINS - 1));
+        bins[bi].push(i);
+      }
+      const boxGeo2 = new THREE.BoxGeometry(lidarCubeSize, lidarCubeSize, lidarCubeSize);
+      // Clear prior bin meshes
+      for (const m of lidarBinMeshes) { try { if (m.parent) m.parent.remove(m); } catch {} }
+      lidarBinMeshes = [];
+      for (let bi = 0; bi < LIDAR_NUM_BINS; bi++) {
+        const idxs = bins[bi]; if (!idxs.length) continue;
+        const mat = new THREE.MeshBasicMaterial({ color: lidarPalette ? lidarPalette[bi] : 0x66ff55, toneMapped: false });
+        const m = new THREE.InstancedMesh(boxGeo2, mat, idxs.length);
+        m.frustumCulled = false;
+        for (let j = 0; j < idxs.length; j++) {
+          const i = idxs[j];
+          _cubeDummy.position.set(dst[3*i+0], dst[3*i+1], dst[3*i+2]);
+          _cubeDummy.rotation.set(0,0,0);
+          _cubeDummy.updateMatrix();
+          m.setMatrixAt(j, _cubeDummy.matrix);
+        }
+        m.instanceMatrix.needsUpdate = true;
+        lidarGroup.add(m);
+        lidarBinMeshes.push(m);
+      }
+      // Hide points when bins are shown
+      if (lidarBinMeshes.length) { if (lidarPoints) lidarPoints.visible = false; }
     }
   }
 }
