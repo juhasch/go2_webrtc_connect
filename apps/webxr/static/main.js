@@ -17,6 +17,7 @@ let _cubeDummy = null;      // reused Object3D for per-instance transforms
 let lidarBinMeshes = [];
 const LIDAR_NUM_BINS = 12;
 let lidarPalette = null;
+let lidarRenderMode = 'points'; // 'points' | 'cubes' | 'bins'
 
 let videoEl = null;
 let videoMesh = null;
@@ -641,10 +642,10 @@ function ensureLidarScene() {
     lidarGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
     const colors = new Float32Array(3);
     lidarGeometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-    const material = new THREE.PointsMaterial({ size: 0.03, sizeAttenuation: true, vertexColors: true });
+    const material = new THREE.PointsMaterial({ size: 0.03, sizeAttenuation: true, vertexColors: true, transparent: false });
     lidarPoints = new THREE.Points(lidarGeometry, material);
     lidarPoints.renderOrder = 2;
-    lidarPoints.visible = false; // default hidden when using cubes
+    lidarPoints.visible = true; // default to points (robust path)
     lidarGroup.add(lidarPoints);
   }
   // Initialize palette for binned cubes
@@ -706,7 +707,7 @@ function updateLidarPoints(buffer) {
   if (scale > 0 && scale !== 1) {
     for (let i = 0; i < count*3; i++) dst[i] *= scale;
   }
-  // Compute per-vertex colors based on height (z) but map to a green->yellow gradient for clarity
+  // Compute per-vertex colors based on height (z) using a bright rainbow for clarity
   const colorAttr = lidarGeometry.getAttribute('color');
   const cArr = colorAttr.array;
   let zMin = Infinity, zMax = -Infinity;
@@ -719,12 +720,19 @@ function updateLidarPoints(buffer) {
   for (let i = 0; i < count; i++) {
     const z = dst[3*i + 2];
     const norm = (z - zMin) / denom; // 0..1
-    const r = 0.2 + 0.8 * norm; // 0.2..1.0
-    const g = 0.8 + 0.2 * (1.0 - norm); // 1.0..0.8
-    const b = 0.05; // small blue component to avoid pure black
-    cArr[3*i + 0] = r;
-    cArr[3*i + 1] = g;
-    cArr[3*i + 2] = b;
+    const hue = (2.0/3.0) * (1.0 - norm); // blue->red
+    const hh = hue * 6.0;
+    const C = 1.0;
+    const X = C * (1.0 - Math.abs((hh % 2.0) - 1.0));
+    let r=0,g=0,b=0;
+    const sext = Math.floor(hh) % 6;
+    if (sext===0){r=C;g=X;b=0;} else if(sext===1){r=X;g=C;b=0;}
+    else if(sext===2){r=0;g=C;b=X;} else if(sext===3){r=0;g=X;b=C;}
+    else if(sext===4){r=X;g=0;b=C;} else {r=C;g=0;b=X;}
+    const gamma = 1.0/1.6;
+    cArr[3*i+0] = Math.pow(r, gamma);
+    cArr[3*i+1] = Math.pow(g, gamma);
+    cArr[3*i+2] = Math.pow(b, gamma);
   }
   const attr = lidarGeometry.getAttribute('position');
   attr.needsUpdate = true;
@@ -732,6 +740,8 @@ function updateLidarPoints(buffer) {
   lidarGeometry.setDrawRange(0, count);
   lidarGeometry.computeBoundingSphere();
 
+  // Points path always available
+  lidarPoints.visible = (lidarRenderMode === 'points');
   // --- Render as cubes using InstancedMesh ---
   if (!_cubeDummy) _cubeDummy = new THREE.Object3D();
   const needCreate = !lidarCubes || (lidarCubes.userData.capacity || 0) < count;
