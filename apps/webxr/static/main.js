@@ -828,18 +828,28 @@ async function connectWebRTC() {
     if (previewEl && !previewEl.srcObject) previewEl.srcObject = ev.streams[0];
     // Create texture and assign to screen
     videoTexture = new THREE.VideoTexture(videoEl);
+    try { videoTexture.colorSpace = THREE.SRGBColorSpace; } catch {}
     videoTexture.minFilter = THREE.LinearFilter;
     videoTexture.magFilter = THREE.LinearFilter;
-    // tex.format no longer needed
-    videoMesh.material.map = videoTexture;
-    videoMesh.material.needsUpdate = true;
+    // Replace world screen material with an opaque video material
+    try {
+      const screenMat = new THREE.MeshBasicMaterial({ map: videoTexture, side: THREE.DoubleSide });
+      screenMat.depthWrite = false;
+      videoMesh.material = screenMat;
+      videoMesh.material.needsUpdate = true;
+    } catch {}
     // Bind texture to HUD in XR if active
     try {
       if (renderer?.xr?.isPresenting) {
         const hud = ensureVideoHUD();
         if (hud) {
-          hud.material.map = videoTexture;
-          hud.material.needsUpdate = true;
+          try {
+            const mat = new THREE.MeshBasicMaterial({ map: videoTexture, side: THREE.DoubleSide });
+            mat.depthWrite = false;
+            mat.depthTest = false;
+            hud.material = mat;
+            hud.material.needsUpdate = true;
+          } catch {}
           hud.visible = (debugState.video === 'playing');
         }
         ensureHudGroup();
