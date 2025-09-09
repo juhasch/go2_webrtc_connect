@@ -734,32 +734,13 @@ function updateLidarPoints(buffer) {
     try { if (lidarCubes && lidarCubes.parent) lidarCubes.parent.remove(lidarCubes); } catch {}
     const cap = count;
     const boxGeo = new THREE.BoxGeometry(lidarCubeSize, lidarCubeSize, lidarCubeSize);
-    // Custom shader that uses per-instance color explicitly
-    const boxMat = new THREE.ShaderMaterial({
-      transparent: false,
-      depthTest: true,
-      depthWrite: true,
-      uniforms: {},
-      vertexShader: `
-        attribute mat4 instanceMatrix;
-        attribute vec3 instanceColor;
-        varying vec3 vColor;
-        void main() {
-          vColor = instanceColor;
-          gl_Position = projectionMatrix * modelViewMatrix * instanceMatrix * vec4(position, 1.0);
-        }
-      `,
-      fragmentShader: `
-        varying vec3 vColor;
-        void main() {
-          gl_FragColor = vec4(vColor, 1.0);
-        }
-      `,
-    });
+    // Use MeshBasicMaterial with per-instance vertexColors via instanceColor attribute
+    const boxMat = new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false, transparent: false, opacity: 1.0 });
     lidarCubes = new THREE.InstancedMesh(boxGeo, boxMat, cap);
     lidarCubes.userData.capacity = cap;
     lidarCubes.count = count;
     lidarCubes.renderOrder = 3;
+    lidarCubes.frustumCulled = false;
     // Explicitly allocate per-instance color buffer and bind to geometry
     try {
       lidarCubes.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(cap * 3), 3);
@@ -801,6 +782,9 @@ function updateLidarPoints(buffer) {
   }
   lidarCubes.instanceMatrix.needsUpdate = true;
   if (lidarCubes.instanceColor) lidarCubes.instanceColor.needsUpdate = true;
+  // Ensure visibility
+  lidarCubes.visible = true;
+  if (lidarPoints) lidarPoints.visible = false;
 }
 
 let _lastXRTime = 0;
