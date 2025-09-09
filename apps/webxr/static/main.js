@@ -715,9 +715,11 @@ function updateLidarPoints(buffer) {
     else if (sext === 3) { r = 0; g = x; b = c; }
     else if (sext === 4) { r = x; g = 0; b = c; }
     else /* 5 */ { r = c; g = 0; b = x; }
-    cArr[3*i + 0] = r;
-    cArr[3*i + 1] = g;
-    cArr[3*i + 2] = b;
+    // Apply gamma to give brighter mid-tones
+    const gamma = 1.0/1.6;
+    cArr[3*i + 0] = Math.pow(r, gamma);
+    cArr[3*i + 1] = Math.pow(g, gamma);
+    cArr[3*i + 2] = Math.pow(b, gamma);
   }
   const attr = lidarGeometry.getAttribute('position');
   attr.needsUpdate = true;
@@ -732,7 +734,7 @@ function updateLidarPoints(buffer) {
     try { if (lidarCubes && lidarCubes.parent) lidarCubes.parent.remove(lidarCubes); } catch {}
     const cap = count;
     const boxGeo = new THREE.BoxGeometry(lidarCubeSize, lidarCubeSize, lidarCubeSize);
-    const boxMat = new THREE.MeshLambertMaterial({ vertexColors: true });
+    const boxMat = new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false });
     boxMat.depthTest = true;
     boxMat.depthWrite = true;
     lidarCubes = new THREE.InstancedMesh(boxGeo, boxMat, cap);
@@ -764,6 +766,10 @@ function updateLidarPoints(buffer) {
   }
   lidarCubes.instanceMatrix.needsUpdate = true;
   if (lidarCubes.instanceColor) lidarCubes.instanceColor.needsUpdate = true;
+  // Force WebGL to use per-instance colors
+  if (lidarCubes.geometry && !lidarCubes.geometry.attributes.instanceColor) {
+    try { lidarCubes.geometry.setAttribute('instanceColor', lidarCubes.instanceColor); } catch {}
+  }
 }
 
 let _lastXRTime = 0;
