@@ -64,7 +64,6 @@ function initDebug() {
 }
 
 function updateDebug() {
-  if (!debugEl) return;
   const lines = [];
   lines.push(`DC control: ${debugState.controlDC} | DC lidar: ${debugState.lidarDC}`);
   lines.push(`Video: ${debugState.video} ${debugState.videoDims}`);
@@ -77,7 +76,7 @@ function updateDebug() {
   lines.push(`Move (x,y,yaw): ${m.x.toFixed(3)}, ${m.y.toFixed(3)}, ${m.yaw.toFixed(3)}`);
   lines.push(`VR Debug: ${debugState.vrdbg ? 'ON' : 'off'}`);
   lines.push(`PC Rotate: ${debugState.pcRotate ? 'ON' : 'off'} (toggle: B)`);
-  debugEl.textContent = lines.join('\n');
+  if (debugEl) debugEl.textContent = lines.join('\n');
 
   // Mirror into VR HUD canvas
   if (debugCtx && debugTexture && debugCanvas) {
@@ -253,7 +252,9 @@ function ensureDebugHUD() {
   }
   if (debugHUDMesh.parent !== camera) {
     camera.add(debugHUDMesh);
-    debugHUDMesh.position.set(-0.85, 0.7, -1.3);
+    debugHUDMesh.position.set(-0.85, 0.65, -1.1);
+    debugHUDMesh.rotation.set(0, 0, 0);
+    debugHUDMesh.visible = true;
   }
   // Initial draw
   updateDebug();
@@ -266,17 +267,9 @@ function toggleVRDebug() {
   try { const btn = document.getElementById('debugBtn'); if (btn) btn.textContent = vrDebugEnabled ? 'VR Debug ON' : 'VR Debug'; } catch {}
   if (vrDebugEnabled) {
     // HUD plane attached to camera
-    if (!hudMesh) {
-      const mat = ensureVideoMaterial();
-      const geo = new THREE.PlaneGeometry(1.6, 0.9);
-      hudMesh = new THREE.Mesh(geo, mat);
-      hudMesh.name = 'vrdebug_hud';
-      hudMesh.renderOrder = 999;
-    }
-    if (hudMesh.parent !== camera) {
-      camera.add(hudMesh);
-      hudMesh.position.set(0, 0, -1.6);
-    }
+    // Repurpose: when VR Debug ON, ensure in-headset debug HUD visible
+    ensureDebugHUD();
+    if (debugHUDMesh) debugHUDMesh.visible = true;
     // World-fixed debug plane
     if (!fixedDebugMesh) {
       const mat2 = ensureVideoMaterial();
@@ -308,6 +301,7 @@ function toggleVRDebug() {
     try { if (hudMesh && hudMesh.parent) hudMesh.parent.remove(hudMesh); } catch {}
     try { if (fixedDebugMesh && fixedDebugMesh.parent) fixedDebugMesh.parent.remove(fixedDebugMesh); } catch {}
     fixedDebugMesh = null;
+    try { if (debugHUDMesh) debugHUDMesh.visible = false; } catch {}
     try {
       if (lidarPoints && lidarPoints.material) {
         lidarPoints.material.size = 0.02;
