@@ -241,7 +241,7 @@ function ensureVideoHUD() {
   if (videoHUDMesh.parent !== hudGroup) {
     try { if (videoHUDMesh.parent) videoHUDMesh.parent.remove(videoHUDMesh); } catch {}
     hudGroup.add(videoHUDMesh);
-    videoHUDMesh.position.set(0, 0, 0);
+    videoHUDMesh.position.set(0, 0.12, 0);
     videoHUDMesh.rotation.set(0, 0, 0);
     videoHUDMesh.visible = true;
   }
@@ -686,6 +686,11 @@ function onXRFrame(time) {
       _tmpDir.set(0, 0, -1).applyQuaternion(_tmpQuat);
       hudGroup.position.copy(_tmpPos).addScaledVector(_tmpDir, 1.0);
       hudGroup.quaternion.copy(_tmpQuat);
+      // Auto-toggle video HUD visibility based on playback
+      try {
+        const playing = !!(videoEl && !videoEl.paused && !videoEl.ended && videoEl.readyState >= 2);
+        if (videoHUDMesh) videoHUDMesh.visible = playing;
+      } catch {}
     }
   } catch {}
   // Update joystick debug arrows when VR Debug is ON
