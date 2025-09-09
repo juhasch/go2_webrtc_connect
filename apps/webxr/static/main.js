@@ -97,10 +97,12 @@ async function setupThree() {
   // Show/hide video HUD when entering/leaving XR
   try {
     renderer.xr.addEventListener('sessionstart', () => {
+      if (videoMesh) videoMesh.visible = false; // hide world screen in VR
       if (videoTexture) ensureVideoHUD();
       if (videoHUDMesh) videoHUDMesh.visible = true;
     });
     renderer.xr.addEventListener('sessionend', () => {
+      if (videoMesh) videoMesh.visible = true;
       if (videoHUDMesh) videoHUDMesh.visible = false;
     });
   } catch {}
@@ -190,12 +192,14 @@ function ensureVideoMaterial() {
 function ensureVideoHUD() {
   if (!videoTexture) return null;
   if (!videoHUDMesh) {
-    const mat = ensureVideoMaterial();
+    // Dedicated HUD material bound to the live VideoTexture
+    const mat = new THREE.MeshBasicMaterial({ map: videoTexture, side: THREE.DoubleSide });
+    mat.depthWrite = false;
+    mat.depthTest = false;
     const geo = new THREE.PlaneGeometry(1.6, 0.9);
     videoHUDMesh = new THREE.Mesh(geo, mat);
     videoHUDMesh.name = 'videoHUD';
     videoHUDMesh.renderOrder = 998;
-    videoHUDMesh.material.depthWrite = false;
   }
   if (videoHUDMesh.parent !== camera) {
     camera.add(videoHUDMesh);
@@ -673,7 +677,11 @@ async function connectWebRTC() {
     try {
       if (renderer?.xr?.isPresenting) {
         const hud = ensureVideoHUD();
-        if (hud) { hud.material.map = videoTexture; hud.material.needsUpdate = true; hud.visible = true; }
+        if (hud) {
+          hud.material.map = videoTexture;
+          hud.material.needsUpdate = true;
+          hud.visible = true;
+        }
       }
     } catch {}
   };
