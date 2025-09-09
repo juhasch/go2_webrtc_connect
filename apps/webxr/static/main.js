@@ -171,6 +171,12 @@ async function setupThree() {
   // Basic lighting
   const light = new THREE.HemisphereLight(0xffffff, 0x222233, 1.0);
   scene.add(light);
+  // Add a dim directional light to shade cubes visibly
+  try {
+    const dir = new THREE.DirectionalLight(0xffffff, 0.6);
+    dir.position.set(2, 4, 1);
+    scene.add(dir);
+  } catch {}
 
   // Floor grid for reference
   const grid = new THREE.GridHelper(20, 20, 0x444444, 0x222222);
@@ -726,7 +732,7 @@ function updateLidarPoints(buffer) {
     try { if (lidarCubes && lidarCubes.parent) lidarCubes.parent.remove(lidarCubes); } catch {}
     const cap = count;
     const boxGeo = new THREE.BoxGeometry(lidarCubeSize, lidarCubeSize, lidarCubeSize);
-    const boxMat = new THREE.MeshBasicMaterial({ vertexColors: true });
+    const boxMat = new THREE.MeshLambertMaterial({ vertexColors: true });
     boxMat.depthTest = true;
     boxMat.depthWrite = true;
     lidarCubes = new THREE.InstancedMesh(boxGeo, boxMat, cap);
@@ -739,13 +745,7 @@ function updateLidarPoints(buffer) {
   } else {
     lidarCubes.count = count;
   }
-  // Ensure instanceColor attribute exists and sized
-  if (!lidarCubes.instanceColor || (lidarCubes.instanceColor.count || 0) < count) {
-    try {
-      lidarCubes.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(count * 3), 3);
-    } catch {}
-  }
-  const icArr = lidarCubes.instanceColor ? lidarCubes.instanceColor.array : null;
+  const col = new THREE.Color();
   for (let i = 0; i < count; i++) {
     const px = dst[3*i + 0];
     const py = dst[3*i + 1];
@@ -754,11 +754,13 @@ function updateLidarPoints(buffer) {
     _cubeDummy.rotation.set(0, 0, 0);
     _cubeDummy.updateMatrix();
     lidarCubes.setMatrixAt(i, _cubeDummy.matrix);
-    if (icArr) {
-      icArr[3*i + 0] = cArr[3*i + 0] || 1;
-      icArr[3*i + 1] = cArr[3*i + 1] || 1;
-      icArr[3*i + 2] = cArr[3*i + 2] || 1;
-    }
+    let r = cArr[3*i + 0] ?? 1;
+    let g = cArr[3*i + 1] ?? 1;
+    let b = cArr[3*i + 2] ?? 1;
+    // Prevent fully black due to precision by lifting very low values
+    const floor = 0.06; if (r < floor && g < floor && b < floor) { r = floor; g = floor; b = floor; }
+    col.setRGB(r, g, b);
+    if (lidarCubes.setColorAt) lidarCubes.setColorAt(i, col);
   }
   lidarCubes.instanceMatrix.needsUpdate = true;
   if (lidarCubes.instanceColor) lidarCubes.instanceColor.needsUpdate = true;
