@@ -26,6 +26,7 @@ keywords = [
     "video",
     "robotics",
     "packaging",
+    "tabulate",
     "numba"
 ]
 classifiers = [
@@ -57,7 +58,7 @@ dependencies = [
     "wasmtime",
     "flask-socketio",
     "lz4",
-    "pydub",
+    "soundfile>=0.12.1",
     "netifaces>=0.11.0",
     "pydantic>=2.5,<3",
     "pyyaml>=6.0",

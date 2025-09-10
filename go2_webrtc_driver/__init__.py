@@ -42,7 +42,7 @@ from .constants import WebRTCConnectionMethod, SPORT_CMD, RTC_TOPIC, VUI_COLOR, 
 from .multicast_scanner import discover_ip_sn
 from .robot_helper import Go2RobotHelper, StateMonitor, RobotMode, create_example_main, simple_robot_connection
 
-# Lazy import for WebRTCAudioHub to avoid pydub import issues
+# Lazy import for WebRTCAudioHub to avoid soundfile import issues
 def _get_webrtc_audiohub():
     """Lazy import for WebRTCAudioHub to avoid import errors"""
     try:

@@ -1,30 +1,45 @@
+"""
+Go2 Robot Odometry Monitoring
+============================
+
+This example demonstrates monitoring of the robot's odometry data
+using the WebRTC connection.
+
+Usage:
+    python robot_odometry.py [--once]
+
+Options:
+    --once   Fetch and display one odometry update, then exit
+"""
+
 import asyncio
+import argparse
 import logging
 import sys
 from go2_webrtc_driver.webrtc_driver import Go2WebRTCConnection, WebRTCConnectionMethod
 from go2_webrtc_driver.constants import RTC_TOPIC
+from typing import Optional
 
 # Enable logging for debugging
 logging.basicConfig(level=logging.INFO)
 
-def display_data(message):
+def display_data(message, clear_screen: bool = True):
     """
     Display robot odometry data in a formatted manner.
     
     Args:
         message: Odometry data containing position, orientation, and velocity information
+        clear_screen: Whether to clear the screen before displaying (default: True)
     """
     try:
-        print(message)
         header = message.get('header', {})
         timestamp = header.get('stamp', {})
         
-        # Alternative field names (adapt based on actual message structure)
         position = message.get('pose', {}).get('position', {})
         orientation = message.get('pose', {}).get('orientation', {})
 
-        # Clear the entire screen and reset cursor position to top
-        sys.stdout.write("\033[H\033[J")
+        if clear_screen:
+            sys.stdout.write("\033[H\033[J")
 
         # Print robot odometry information
         print("Go2 Robot Odometry (ROBOTODOM)")
@@ -82,7 +97,50 @@ def display_data(message):
         sys.stdout.flush()
 
 
-async def main():
+async def odometry_monitoring_demo(conn: Go2WebRTCConnection, once: bool = False):
+    """
+    Demonstrate robot odometry monitoring using the WebRTC connection
+    
+    This subscribes to the robot's odometry data and displays
+    real-time position and orientation information.
+    """
+    print("📡 Starting robot odometry monitoring...")
+    
+    # If running in once mode, use an event to release after first message
+    first_message_event: Optional[asyncio.Event] = asyncio.Event() if once else None
+
+    # Define callback function to handle odometry data when received
+    def odometry_callback(message):
+        current_message = message['data']
+        display_data(current_message, clear_screen=(not once))
+        if first_message_event is not None and not first_message_event.is_set():
+            first_message_event.set()
+    
+    # Subscribe to the robot odometry data
+    conn.datachannel.pub_sub.subscribe(RTC_TOPIC['ROBOTODOM'], odometry_callback)
+    print("✅ Monitoring robot odometry data (Ctrl+C to stop)")
+    print("=" * 50)
+
+    # If only one message is requested, wait for it, then unsubscribe and return
+    if once and first_message_event is not None:
+        try:
+            await first_message_event.wait()
+        finally:
+            try:
+                conn.datachannel.pub_sub.unsubscribe(RTC_TOPIC['ROBOTODOM'])
+            except Exception:
+                pass
+        return
+    
+    # Simple monitoring loop - allow cancellation to propagate cleanly
+    try:
+        while True:
+            await asyncio.sleep(1)
+    except asyncio.CancelledError:
+        raise
+
+
+async def main(once: bool = False):
     """
     Main function to establish WebRTC connection and subscribe to robot odometry data.
     """
@@ -96,19 +154,12 @@ async def main():
         await conn.connect()
         print("Connected successfully!")
 
-        # Define a callback function to handle robot odometry when received
-        def odometry_callback(message):
-            current_message = message['data']
-            display_data(current_message)
-
         print("Subscribing to robot odometry data...")
-        print("Press Ctrl+C to stop\n")
+        if not once:
+            print("Press Ctrl+C to stop\n")
 
-        # Subscribe to the robot odometry data and use the callback function to process incoming messages
-        conn.datachannel.pub_sub.subscribe(RTC_TOPIC['ROBOTODOM'], odometry_callback)
-
-        # Keep the program running to allow event handling for 1 hour
-        await asyncio.sleep(3600)
+        # Start odometry monitoring
+        await odometry_monitoring_demo(conn, once=once)
 
     except KeyboardInterrupt:
         # Handle Ctrl+C to exit gracefully within the async context
@@ -130,7 +181,22 @@ async def main():
 
 
 if __name__ == "__main__":
+    """
+    Main entry point with argument parsing for --once option
+    """
+    print("Go2 Robot Odometry Monitoring")
+    print("Press Ctrl+C to stop")
+    print("=" * 30)
+    
+    parser = argparse.ArgumentParser(description="Go2 Robot Odometry Monitoring")
+    parser.add_argument("--once", action="store_true", help="Fetch one odometry update and exit")
+    args = parser.parse_args()
+
     try:
-        asyncio.run(main())
+        asyncio.run(main(once=args.once))
     except KeyboardInterrupt:
-        pass 
+        print("\n✅ Stopped by user")
+    except Exception as e:
+        print(f"❌ Error: {e}")
+    finally:
+        print("Done.") 

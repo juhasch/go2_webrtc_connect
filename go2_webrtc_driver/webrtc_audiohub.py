@@ -58,7 +58,8 @@ import time
 import os
 import hashlib
 from typing import Dict, Any, Optional
-from pydub import AudioSegment
+import soundfile as sf
+import numpy as np
 from go2_webrtc_driver.constants import AUDIO_API
 from go2_webrtc_driver.webrtc_driver import Go2WebRTCConnection
 import asyncio
@@ -440,10 +441,18 @@ class WebRTCAudioHub:
         # Convert MP3 to WAV if necessary
         if audiofile_path.endswith(".mp3"):
             self.logger.debug("Converting MP3 to WAV")
-            audio = AudioSegment.from_mp3(audiofile_path)
-            audio = audio.set_frame_rate(44100)
+            # Read MP3 file
+            data, sample_rate = sf.read(audiofile_path)
+            # Resample to 44100 Hz if needed
+            if sample_rate != 44100:
+                from scipy import signal
+                # Calculate resampling ratio
+                resample_ratio = 44100 / sample_rate
+                # Resample the audio data
+                data = signal.resample(data, int(len(data) * resample_ratio))
+            # Save as WAV file
             wav_file_path = audiofile_path.replace('.mp3', '.wav')
-            audio.export(wav_file_path, format='wav', parameters=["-ar", "44100"])
+            sf.write(wav_file_path, data, 44100)
         else:
             wav_file_path = audiofile_path
         
@@ -599,10 +608,18 @@ class WebRTCAudioHub:
         # Convert MP3 to WAV if necessary
         if audiofile_path.endswith(".mp3"):
             self.logger.debug("Converting MP3 to WAV")
-            audio = AudioSegment.from_mp3(audiofile_path)
-            audio = audio.set_frame_rate(44100)
+            # Read MP3 file
+            data, sample_rate = sf.read(audiofile_path)
+            # Resample to 44100 Hz if needed
+            if sample_rate != 44100:
+                from scipy import signal
+                # Calculate resampling ratio
+                resample_ratio = 44100 / sample_rate
+                # Resample the audio data
+                data = signal.resample(data, int(len(data) * resample_ratio))
+            # Save as WAV file
             wav_file_path = audiofile_path.replace('.mp3', '.wav')
-            audio.export(wav_file_path, format='wav', parameters=["-ar", "44100"])
+            sf.write(wav_file_path, data, 44100)
         else:
             wav_file_path = audiofile_path
 
