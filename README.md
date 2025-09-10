@@ -2,7 +2,7 @@
 
 This repository contains a Python implementation of the WebRTC driver to connect to the Unitree Go2 Robot. WebRTC is used by the Unitree Go APP and provides high-level control through it. Therefore, no jailbreak or firmware manipulation is required. It works out of the box for Go2 AIR/PRO/EDU models.
 
-** This is a modified version compared to the original from legion1581 **
+**This is a modified version compared to the original from legion1581**
 
 
 ```
